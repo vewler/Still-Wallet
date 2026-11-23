@@ -1,0 +1,364 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { activeNetworks, defaultEndpoint, networks, type Network, type NetworkId } from './networks'
+import { tokensFor } from './tokens'
+import { defaultLayout, type AssetLayout } from './assets'
+import { VAULT_KEY, activitySaved, forgetActivity, loadActivity, readActivity, readAssetLayout, saveAssetLayout, savedVaultId, saveAccounts, saveWalletEmoji, saveWalletName, walletEmoji, walletIds, walletName, readPreferences, saveActivity, savePreferences, type ActivityItem, type Preferences } from './storage'
+import type { Session } from './vault'
+import type { Prices, Quote } from './rpc'
+import type { Balance } from './components/Overview'
+
+const PRICE_CACHE = 'still.prices.v1'
+function readPriceCache(currency: string): { prices: Prices; changes: Prices } {
+  try {
+    const value = JSON.parse(localStorage.getItem(PRICE_CACHE) ?? 'null') as { currency?: string; prices?: Prices; changes?: Prices } | null
+    if (value && value.currency === currency && value.prices && value.changes) return { prices: value.prices, changes: value.changes }
+  } catch { /* Start empty. */ }
+  return { prices: {}, changes: {} }
+}
+
+const monero = 'monero-main'
+let moneroUsed = false
+
+function hasVault() {
+  try { return localStorage.getItem(VAULT_KEY) !== null } catch { return false }
+}
+
+export function useWallet(close: () => void, notify: (message: string) => void) {
+  const [preferences, setPreferences] = useState(readPreferences)
+  const [saved, setSaved] = useState(hasVault)
+  const [session, setSession] = useState<Session>()
+  const [name, setName] = useState(() => { const id = savedVaultId(); return id ? walletName(id) : '' })
+  const [wallets, setWallets] = useState<{ id: string; account: number; name: string; emoji: string }[]>([])
+  const [balances, setBalances] = useState<Partial<Record<NetworkId, Balance>>>({})
+  const [items, setItems] = useState<ActivityItem[]>([])
+  const [layout, setLayout] = useState<AssetLayout>(defaultLayout)
+  const [refreshing, setRefreshing] = useState(false)
+  // Last prices are cached locally so totals show instantly on open.
+  const [prices, setPrices] = useState<Prices>(() => readPriceCache(readPreferences().currency).prices)
+  const [changes, setChanges] = useState<Prices>(() => readPriceCache(readPreferences().currency).changes)
+  const [tokenBalances, setTokenBalances] = useState<Record<string, Balance>>({})
+  const active = useRef<Session | undefined>(undefined)
+  const currentPreferences = useRef(preferences)
+  const connection = useRef<AbortController | null>(null)
+  const refreshRequest = useRef<AbortController | null>(null)
+  const submitting = useRef(false)
+
+  const resetRequests = useCallback(() => {
+    connection.current?.abort()
+    connection.current = new AbortController()
+    refreshRequest.current?.abort()
+    setRefreshing(false)
+  }, [])
+
+  const lock = useCallback(() => {
+    if (moneroUsed) void import('./moneroWallet').then((monero) => monero.closeMonero())
+    active.current = undefined
+    forgetActivity()
+    resetRequests()
+    setSession(undefined)
+    setBalances({})
+    setTokenBalances({})
+    setItems([])
+    close()
+  }, [close, resetRequests])
+
+  useEffect(() => {
+    const syncVault = (event: StorageEvent) => {
+      if (event.key !== VAULT_KEY && event.key !== null) return
+      lock()
+      setSaved(hasVault())
+    }
+    window.addEventListener('storage', syncVault)
+    return () => window.removeEventListener('storage', syncVault)
+  }, [lock])
+
+  useEffect(() => {
+    if (!session) return
+    if (preferences.autoLock === 0) {
+      // Instant: lock on hide or blur.
+      const visibility = () => { if (document.visibilityState === 'hidden') lock() }
+      window.addEventListener('blur', lock)
+      document.addEventListener('visibilitychange', visibility)
+      return () => { window.removeEventListener('blur', lock); document.removeEventListener('visibilitychange', visibility) }
+    }
+    const duration = preferences.autoLock * 60_000
+    let deadline = Date.now() + duration
+    let timer = setTimeout(lock, duration)
+    function activity() {
+      if (Date.now() >= deadline) { lock(); return }
+      deadline = Date.now() + duration
+      clearTimeout(timer)
+      timer = setTimeout(lock, duration)
+    }
+    function visibility() {
+      if (Date.now() >= deadline) lock()
+    }
+    window.addEventListener('pointerdown', activity, { passive: true })
+    window.addEventListener('keydown', activity)
+    document.addEventListener('visibilitychange', visibility)
+    window.addEventListener('pageshow', visibility)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('pointerdown', activity)
+      window.removeEventListener('keydown', activity)
+      document.removeEventListener('visibilitychange', visibility)
+      window.removeEventListener('pageshow', visibility)
+    }
+  }, [lock, session, preferences.autoLock])
+
+  function start(value: Session) {
+    active.current = value
+    resetRequests()
+    setSaved(true)
+    setSession(value)
+    setName(walletName(value.id))
+    setItems([])
+    void loadActivity(value.id, value.activityKey).then((items) => { if (active.current === value) setItems(items) }, () => {})
+    setLayout(readAssetLayout(value.id, defaultLayout))
+    setBalances({})
+    setTokenBalances({})
+    loadWallets(value.vault)
+    // Load balances right after unlock/switch.
+    if (!currentPreferences.current.offline) void refresh('balances', true)
+  }
+
+  /** Save shown coins and their order. */
+  function arrange(next: AssetLayout) {
+    const wallet = active.current
+    if (next.shown.includes(monero) && !layout.shown.includes(monero) && wallet && !currentPreferences.current.offline) loadMonero(wallet, connection.current?.signal)
+    setLayout(next)
+    if (wallet) try { saveAssetLayout(wallet.id, next) } catch { notify('This browser could not save your token list.') }
+  }
+
+  /** XMR scans separately (and only while shown), it can take much longer than the other balances. */
+  function loadMonero(wallet: Session, signal?: AbortSignal) {
+    const network = networks[monero]
+    moneroUsed = true
+    void import('./moneroWallet').then((xmr) => xmr.moneroBalance(wallet, currentPreferences.current.rpc[monero] ?? defaultEndpoint(network))).then(
+      (amount) => { if (active.current === wallet && !signal?.aborted) setBalances((current) => ({ ...current, [monero]: { amount } })) },
+      () => { if (active.current === wallet && !signal?.aborted) setBalances((current) => ({ ...current, [monero]: { unavailable: true } })) },
+    )
+  }
+
+  function loadWallets(vault: string) {
+    setWallets(walletIds(vault).map(({ id, account }) => ({ id, account, name: walletName(id), emoji: walletEmoji(id, account) })))
+  }
+
+  async function switchWallet(account: number) {
+    const wallet = active.current
+    if (!wallet || account === wallet.account) return
+    const next = await (await import('./vault')).accountSession(wallet, account)
+    if (active.current !== wallet) return
+    try { saveAccounts(wallet.vault, { active: account }) } catch { /* Still switch for this session. */ }
+    start(next)
+  }
+
+  async function addWallet() {
+    const wallet = active.current
+    if (!wallet) return
+    const account = wallets.length
+    if (account >= 100) { notify('You can add up to 100 wallets.'); return }
+    try { saveAccounts(wallet.vault, { count: account + 1 }) } catch { notify('This browser could not save the new wallet.'); return }
+    await switchWallet(account)
+    notify('Wallet added')
+  }
+
+  function rename(value: string, id = active.current?.id) {
+    const wallet = active.current
+    if (!wallet || !id) return false
+    try {
+      const saved = saveWalletName(id, value)
+      if (id === wallet.id) setName(saved)
+      loadWallets(wallet.vault)
+      return true
+    }
+    catch (problem) { notify(problem instanceof Error && problem.message === 'Enter a wallet name.' ? problem.message : 'This browser could not save the name.'); return false }
+  }
+
+  function setEmoji(id: string, emoji: string) {
+    const wallet = active.current
+    if (!wallet) return
+    try { saveWalletEmoji(id, emoji); loadWallets(wallet.vault) } catch { notify('This browser could not save the emoji.') }
+  }
+
+  function update(change: Partial<Preferences>) {
+    const previous = currentPreferences.current
+    const next = { ...previous, ...change }
+    try { savePreferences(next) } catch { notify('This browser could not save your preferences.'); return false }
+    currentPreferences.current = next
+    if (change.environment || change.rpc || change.offline !== undefined) {
+      resetRequests()
+      setBalances({})
+      setTokenBalances({})
+    }
+    if (change.currency && change.currency !== previous.currency) {
+      setPrices({})
+      setChanges({})
+    }
+    setPreferences(next)
+    return true
+  }
+
+  async function refresh(kind: 'balances' | 'activity', quiet = false) {
+    const wallet = active.current
+    const prefs = currentPreferences.current
+    if (!wallet || prefs.offline) return
+    refreshRequest.current?.abort()
+    const request = new AbortController()
+    refreshRequest.current = request
+    setRefreshing(true)
+    try {
+      const rpc = await import('./rpc')
+      if (request.signal.aborted) return
+      if (kind === 'balances') {
+        if (prefs.environment === 'main') void loadPrices(prefs.currency)
+        const networkList = activeNetworks(prefs.environment).filter((network) => network.id !== monero)
+        if (readAssetLayout(wallet.id, defaultLayout).shown.includes(monero)) loadMonero(wallet, request.signal)
+        const tokenList = tokensFor(prefs.environment)
+        const [result, tokenResult] = await Promise.all([
+          Promise.allSettled(networkList.map((network) => rpc.getBalance(network, prefs.rpc[network.id] ?? defaultEndpoint(network), wallet.addresses, request.signal))),
+          Promise.allSettled(networkList.map((network) => rpc.getTokenBalances(network, prefs.rpc[network.id] ?? defaultEndpoint(network), wallet.addresses, tokenList.filter((token) => token.network === network.id), request.signal))),
+        ])
+        if (request.signal.aborted) return
+        setBalances((current) => ({ ...current, ...Object.fromEntries(result.map((entry, index) => [networkList[index].id, entry.status === 'fulfilled' ? { amount: entry.value } : { unavailable: true }])) }))
+        const loaded: Record<string, Balance> = {}
+        tokenResult.forEach((entry, index) => tokenList.filter((token) => token.network === networkList[index].id).forEach((token) => {
+          loaded[token.id] = entry.status === 'fulfilled' && entry.value[token.id] !== undefined ? { amount: entry.value[token.id] } : { unavailable: true }
+        }))
+        setTokenBalances(loaded)
+        const failed = [...result, ...tokenResult].some((entry) => entry.status === 'rejected')
+        if (failed || !quiet) notify(failed ? 'Some RPCs could not load balances.' : 'Balances refreshed')
+      } else {
+        const pending = readActivity(wallet.id).filter((item) => item.status === 'submitted' || item.status === 'unknown').slice(0, 30)
+        const result = await Promise.allSettled(pending.map((item) => {
+          const network = networks[item.network]
+          return rpc.checkTransaction(item, network, prefs.rpc[network.id] ?? defaultEndpoint(network), request.signal)
+        }))
+        if (request.signal.aborted) return
+        result.forEach((entry, index) => {
+          const item = pending[index]
+          if (entry.status === 'fulfilled' && entry.value !== item.status) saveActivity(wallet.id, { ...item, status: entry.value })
+        })
+        setItems(readActivity(wallet.id))
+        notify(result.some((entry) => entry.status === 'rejected') ? 'Some transaction statuses could not be checked.' : 'Activity refreshed')
+      }
+    } catch {
+      if (!request.signal.aborted) notify('Still could not refresh. Try again.')
+    } finally {
+      if (!request.signal.aborted) setRefreshing(false)
+    }
+  }
+
+  async function loadPrices(currency: string) {
+    try {
+      const signal = connection.current?.signal ?? new AbortController().signal
+      const next = await (await import('./rpc')).getPrices(currency, signal)
+      if (!signal.aborted && currentPreferences.current.currency === currency) {
+        setPrices(next.prices)
+        setChanges(next.changes)
+        try { localStorage.setItem(PRICE_CACHE, JSON.stringify({ currency, ...next })) } catch { /* Live prices still show. */ }
+      }
+    } catch { /* Fiat values fall back to token amounts. */ }
+  }
+
+  // Prices load on open (and again on unlock, since locking aborts requests),
+  // then every 2 min because of CoinGecko's rate limit.
+  useEffect(() => {
+    if (preferences.offline) return
+    void loadPrices(preferences.currency)
+    const timer = window.setInterval(() => void loadPrices(preferences.currency), 120_000)
+    return () => window.clearInterval(timer)
+  }, [preferences.offline, preferences.currency, session])
+
+  async function prepareQuote(network: Network, signal: AbortSignal, quote: (endpoint: string, wallet: Session, signal: AbortSignal) => Promise<Quote>) {
+    const wallet = active.current
+    const prefs = currentPreferences.current
+    const connectionSignal = connection.current?.signal
+    if (!wallet || !connectionSignal || prefs.offline || !network.id.endsWith(`-${prefs.environment}`)) throw new Error('Open your wallet and enable network requests first.')
+    const request = AbortSignal.any([signal, connectionSignal])
+    request.throwIfAborted()
+    return quote(prefs.rpc[network.id] ?? defaultEndpoint(network), wallet, request)
+  }
+
+  function prepare(network: Network, to: string, amount: string, signal: AbortSignal, asset?: string, tag?: string) {
+    if (network.chain === 'monero') moneroUsed = true
+    return prepareQuote(network, signal, async (endpoint, wallet, request) => network.chain === 'monero'
+      ? (await import('./moneroWallet')).quoteMonero(network, endpoint, wallet, to, amount, request)
+      : (await import('./rpc')).quoteTransfer(network, endpoint, wallet.addresses, to, amount, request, asset, tag))
+  }
+
+  function prepareSwap(network: Network, sell: string, buy: string, amount: string, signal: AbortSignal, slippage?: number) {
+    return prepareQuote(network, signal, async (endpoint, wallet, request) =>
+      (await import('./swap')).quoteSwap(network, endpoint, wallet.addresses.ethereum, sell, buy, amount, request, slippage))
+  }
+
+  async function submit(quote: Quote) {
+    const wallet = active.current
+    const signal = connection.current?.signal
+    if (!wallet || !signal || submitting.current) throw new Error('The wallet is unavailable. Unlock and try again.')
+    const perform = async () => {
+      const prefs = currentPreferences.current
+      if (active.current !== wallet || signal.aborted || prefs.offline || !quote.network.id.endsWith(`-${prefs.environment}`)) throw new Error('The wallet or network settings changed. Open a new transfer.')
+      if (Date.now() > quote.expires) throw new Error('The fee quote expired. Edit the transfer to request a new one.')
+      const related = readActivity(wallet.id).filter((item) => item.network === quote.network.id && item.to === quote.to &&
+        item.asset === quote.asset && item.kind === quote.kind && item.destinationTag === quote.destinationTag &&
+        (item.value === quote.value || quote.kind === 'approval') && item.receive?.symbol === quote.receive?.symbol &&
+        (item.status === 'unknown' || (quote.kind === 'approval' && item.status === 'submitted')))
+      if (related.length) {
+        const rpc = await import('./rpc')
+        const endpoint = prefs.rpc[quote.network.id] ?? defaultEndpoint(quote.network)
+        for (const item of related) {
+          const status = await rpc.checkTransaction(item, quote.network, endpoint, signal)
+          signal.throwIfAborted()
+          if (status === 'unknown' || status === 'submitted') throw new Error('A related transaction is pending or unverified. Check Activity before trying again.')
+          setItems(saveActivity(wallet.id, { ...item, status }))
+          if (status === 'confirmed' && quote.kind !== 'approval') throw new Error('A matching transaction was confirmed. Check Activity before sending again.')
+        }
+        if (quote.kind === 'approval') throw new Error('Your token approval changed. Request a fresh swap quote.')
+      }
+      const signed = await quote.sign(wallet)
+      signal.throwIfAborted()
+      const item: ActivityItem = {
+        hash: signed.hash, to: quote.to, value: quote.value, network: quote.network.id, created: Date.now(), status: 'unknown',
+        lastValidBlockHeight: signed.lastValidBlockHeight, lastLedgerSequence: signed.lastLedgerSequence,
+        asset: quote.asset, destinationTag: quote.destinationTag, kind: quote.kind, receive: quote.receive,
+      }
+      // Save the tx id before broadcasting so a timeout can be recovered.
+      const pending = saveActivity(wallet.id, item)
+      if (active.current === wallet) setItems(pending)
+      await activitySaved()
+      try { await signed.broadcast(); item.status = 'submitted' } catch { /* Submission is ambiguous until checked by hash. */ }
+      if (hasVault() && readActivity(wallet.id).some((entry) => entry.hash === item.hash)) {
+        try {
+          const updated = saveActivity(wallet.id, item)
+          if (active.current === wallet) setItems(updated)
+        } catch { /* The pre-broadcast entry remains available. */ }
+      }
+      return item
+    }
+
+    submitting.current = true
+    try {
+      return await (navigator.locks ? navigator.locks.request(`still.send.${wallet.id}`, perform) : perform())
+    } finally {
+      submitting.current = false
+    }
+  }
+
+  function removed() {
+    lock()
+    setSaved(false)
+    setName('')
+    setWallets([])
+    // Delete resets settings too, reload them.
+    currentPreferences.current = readPreferences()
+    setPreferences(currentPreferences.current)
+  }
+
+  return {
+    preferences, balances, tokenBalances, layout, arrange, items, refreshing, session, name, wallets, prices, changes,
+    emoji: wallets.find((entry) => entry.id === session?.id)?.emoji,
+    mode: session ? 'wallet' as const : saved ? 'locked' as const : 'none' as const,
+    lock, start, update, refresh, prepare, prepareSwap, submit, removed, rename, setEmoji, switchWallet, addWallet,
+  }
+}

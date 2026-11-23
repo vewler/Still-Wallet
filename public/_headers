@@ -1,0 +1,36 @@
+/*
+  Content-Security-Policy: frame-ancestors 'none'
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Cross-Origin-Resource-Policy: same-origin
+  Cross-Origin-Opener-Policy: same-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()
+
+/icons/*
+  ! Content-Security-Policy
+  ! X-Frame-Options
+  ! Cross-Origin-Opener-Policy
+  ! Permissions-Policy
+  ! Referrer-Policy
+  ! X-Content-Type-Options
+  ! Cross-Origin-Resource-Policy
+  Cross-Origin-Resource-Policy: cross-origin
+/apple-touch-icon*
+  ! Content-Security-Policy
+  ! X-Frame-Options
+  ! Cross-Origin-Opener-Policy
+  ! Permissions-Policy
+  ! Referrer-Policy
+  ! X-Content-Type-Options
+  ! Cross-Origin-Resource-Policy
+  Cross-Origin-Resource-Policy: cross-origin
+/manifest.webmanifest
+  ! Content-Security-Policy
+  ! X-Frame-Options
+  ! Cross-Origin-Opener-Policy
+  ! Permissions-Policy
+  ! Referrer-Policy
+  ! X-Content-Type-Options
+  ! Cross-Origin-Resource-Policy
+  Cross-Origin-Resource-Policy: cross-origin

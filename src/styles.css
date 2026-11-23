@@ -1,0 +1,992 @@
+:root {
+  font-family: 'Inter Variable', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  color-scheme: dark;
+  color: #fff;
+  background: #050505;
+  --bg: #050505;
+  --surface: #101013;
+  --card: #17171b;
+  --card-hover: #1e1e23;
+  --stroke: #25252c;
+  --text: #fff;
+  --muted: #92929c;
+  --quiet: #6c6c76;
+  --blue: #397bff;
+  --blue-hover: #4d89ff;
+  --link: #77a4ff;
+  --green: #3ddc84;
+  --danger: #ff6b6b;
+  --header: 64px;
+  --tabbar: 64px;
+  --gutter: 16px;
+  --radius: 16px;
+  --focus: 2px solid #80aaff;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; min-height: 100dvh; background: var(--bg); }
+/* No text selection in the UI (incl. top-layer sheets). Fields and addresses stay selectable. */
+html, body, dialog, dialog * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+input, textarea, [contenteditable], .mono, dialog :is(input, textarea, [contenteditable], .mono) { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+button, input, textarea, select { font: inherit; color: inherit; min-width: 0; }
+button, a, input, textarea, select { -webkit-tap-highlight-color: transparent; }
+button, a { touch-action: manipulation; }
+button { cursor: pointer; background: none; border: 0; padding: 0; }
+button:disabled { cursor: default; opacity: .4; }
+a { color: inherit; text-decoration: none; }
+:focus-visible { outline: var(--focus); outline-offset: 2px; }
+h1, h2, h3, p, dl, dd { margin: 0; }
+svg { flex-shrink: 0; }
+.mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.skip-link { position: fixed; z-index: 30; top: 8px; left: 8px; padding: 12px 16px; color: #000; background: #fff; border-radius: 10px; transform: translateY(-150%); }
+.skip-link:focus { transform: none; }
+.spin { animation: spin .85s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.up { color: var(--green); }
+.danger-text { color: var(--danger) !important; }
+.center { text-align: center; }
+.redacted { letter-spacing: .08em; }
+
+/* Brand (used by the landing page) */
+.brand { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
+.brand img { width: 29px; height: 29px; object-fit: contain; flex: none; }
+.brand strong { font-size: 29px; line-height: 1; font-weight: 720; letter-spacing: -.055em; }
+.brand small { font-size: 12px; color: var(--muted); margin-left: 2px; font-weight: 450; }
+
+/* Buttons */
+.button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 48px; padding: 0 18px; border-radius: 14px; border: 1px solid transparent;
+  font-size: 15px; font-weight: 620; transition: background .15s, transform .1s, border-color .15s;
+}
+.button:active:not(:disabled) { transform: scale(.98); }
+.button.primary { background: var(--blue); color: #fff; }
+.button.secondary { background: var(--card); border-color: var(--stroke); }
+.button.danger { background: #3a1416; color: #ffb3b3; border-color: #5a2226; }
+.button.wide { width: 100%; }
+.button.compact { min-height: 36px; padding: 0 12px; font-size: 13px; border-radius: 10px; }
+.button.pill { min-height: 36px; padding: 0 16px; border-radius: 999px; font-size: 14px; }
+.button.text-button { color: var(--muted); min-height: 44px; }
+.round-button, .icon-button {
+  display: inline-grid; place-items: center; width: 40px; height: 40px; border-radius: 50%;
+  color: var(--muted); transition: background .15s, color .15s;
+}
+
+/* App shell: phone-width column, centered on wide screens. */
+:root { --app-width: 550px; }
+.app {
+  position: relative; display: flex; flex-direction: column;
+  width: 100%; max-width: var(--app-width); min-height: 100dvh; margin: 0 auto;
+  background: var(--bg);
+}
+@media (min-width: 590px) {
+  .app { border-inline: 1px solid var(--stroke); }
+  .tabbar { left: 50% !important; max-width: var(--app-width); transform: translateX(-50%); border-inline: 1px solid var(--stroke); }
+  :root[data-layout='phone'] .dialog.dialog { max-width: var(--app-width); margin: 0 auto; }
+}
+.app-header {
+  position: sticky; top: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  height: calc(var(--header) + env(safe-area-inset-top)); padding: env(safe-area-inset-top) var(--gutter) 0;
+  background: color-mix(in srgb, var(--bg) 86%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+.account { text-align: left; display: flex; align-items: center; gap: 10px; min-width: 0; padding: 4px 10px 4px 4px; border-radius: 999px; transition: background .15s; }
+.avatar { display: grid; place-items: center; width: 36px; height: 36px; flex: none; border-radius: 50%; background: var(--card); border: 1px solid var(--stroke); }
+.avatar img { width: 20px; height: 20px; object-fit: contain; }
+.account-text { display: grid; min-width: 0; line-height: 1.2; }
+.account-text strong { display: flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.account-text small { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 500; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.dot--test { background: #f5b942; }
+.dot--main { background: var(--green); }
+.dot--locked { background: var(--quiet); }
+.dot--none { background: var(--blue); }
+.account-edit { color: var(--quiet); }
+.header-icons { display: flex; align-items: center; gap: 4px; }
+
+.app-main { flex: 1; padding: 4px var(--gutter) calc(var(--tabbar) + env(safe-area-inset-bottom) + 8px); outline: none; }
+
+.tabbar {
+  position: fixed; z-index: 6; bottom: 0; left: 0;
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  width: 100%;
+  height: calc(var(--tabbar) + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom);
+  background: var(--surface);
+  border-top: 1px solid var(--stroke);
+}
+.tabbar a { display: grid; place-items: center; color: var(--quiet); transition: color .15s; }
+.tabbar a span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.tabbar a[aria-current='page'] { color: var(--text); }
+
+/* Home */
+.home { display: grid; gap: 22px; }
+.hero { display: grid; justify-items: center; gap: 8px; padding: 26px 0 4px; text-align: center; }
+.hero-amount { font-size: clamp(48px, 16vw, 66px); font-weight: 720; letter-spacing: -.045em; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.hero-amount--empty { color: var(--muted); font-size: clamp(34px, 10vw, 42px); }
+.balance-amount span { color: var(--muted); }
+.hero-change { display: flex; align-items: center; gap: 8px; min-height: 24px; color: var(--muted); font-size: 15px; font-weight: 560; }
+.pill-up { padding: 2px 8px; border-radius: 7px; color: var(--green); background: #3ddc8419; font-size: 14px; }
+.hero-native { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 22px; }
+.hero-native div { display: flex; align-items: baseline; gap: 7px; }
+.hero-native strong { font-size: clamp(32px, 10vw, 42px); font-weight: 720; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.hero-native span { color: var(--muted); font-size: 18px; font-weight: 620; }
+
+.actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.action {
+  display: grid; justify-items: center; gap: 8px; padding: 14px 4px 12px;
+  border-radius: var(--radius); background: var(--card); color: var(--muted);
+  font-size: 13px; font-weight: 580; transition: background .15s, transform .1s;
+}
+.action span { display: grid; place-items: center; color: var(--blue); }
+.action:active:not(:disabled) { transform: scale(.96); }
+.actions--sheet { grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 4px 0 14px; }
+
+.promo {
+  display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px; text-align: left;
+  border-radius: var(--radius); background: linear-gradient(135deg, #397bff22, #397bff08 60%), var(--surface);
+  border: 1px solid #397bff33; color: var(--muted); transition: border-color .15s;
+}
+.promo > span:nth-child(2) { display: grid; gap: 2px; flex: 1; }
+.promo strong { color: var(--text); font-size: 15px; font-weight: 640; }
+.promo small { font-size: 13px; }
+.promo-icon { display: grid; place-items: center; width: 40px; height: 40px; flex: none; border-radius: 12px; background: #397bff26; color: var(--link); }
+
+.list-title { margin: 0 0 10px 4px; color: var(--muted); font-size: 14px; font-weight: 620; }
+.token-list { display: grid; gap: 8px; }
+.token {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 72px; padding: 12px 14px;
+  border-radius: var(--radius); background: var(--card); text-align: left; transition: background .15s, transform .1s;
+}
+button.token:active, a.token:active { transform: scale(.99); }
+.token-name, .token-value { display: grid; gap: 3px; min-width: 0; }
+.token-name { flex: 1; }
+.token-value { justify-items: end; text-align: right; }
+.token strong { font-size: 16px; font-weight: 620; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.token small { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.token small.up { color: var(--green); }
+
+.coin { width: 44px; height: 44px; display: inline-grid; place-items: center; flex: none; border-radius: 50%; box-shadow: inset 0 0 0 1px #ffffff1a; }
+.coin svg { width: 25px; height: 25px; }
+.coin--ethereum { background: #4f67e9; }
+.coin--solana { background: #000; }
+.coin--base { background: #1559f7; }
+.coin--bnb { background: #f0b90b; }
+.coin--bitcoin { background: #f7931a; }
+.coin--xrp { background: #23292f; }
+.coin--hyperevm { background: #97fce4; }
+.coin--monero { background: #f26822; }
+.token-icon { position: relative; display: inline-grid; flex: none; }
+.coin--token { color: #fff; font-weight: 760; letter-spacing: -.04em; }
+.coin--token b { font-size: 11px; }
+.coin--token b[data-len='4'] { font-size: 9.5px; }
+.token-chain { position: absolute; right: -3px; bottom: -3px; display: grid; border-radius: 50%; border: 2px solid var(--card); }
+.token-chain .coin { width: 18px !important; height: 18px !important; box-shadow: none; }
+.token-chain .coin svg { width: 11px !important; height: 11px !important; }
+.asset-detail .token-icon .coin--token { width: 64px; height: 64px; }
+.asset-detail .token-icon .coin--token b { font-size: 17px; }
+.asset-detail .token-chain .coin { width: 24px !important; height: 24px !important; }
+
+.tx-icon { position: relative; flex: none; }
+.tx-badge { position: absolute; right: -3px; bottom: -3px; display: grid; place-items: center; width: 19px; height: 19px; border-radius: 50%; background: var(--muted); color: #000; border: 2px solid var(--card); }
+.tx-badge.up-bg { background: var(--green); }
+.tx-status--confirmed { color: var(--green) !important; }
+.tx-status--failed, .tx-status--expired { color: var(--danger) !important; }
+.tx-status--submitted { color: #f5b942 !important; }
+
+.trust-note { display: flex; align-items: center; justify-content: center; gap: 7px; padding: 6px 0; color: var(--quiet); font-size: 12px; }
+
+/* Inner pages */
+.page { display: grid; gap: 10px; }
+.page-title { display: flex; align-items: center; justify-content: space-between; min-height: 48px; margin: 6px 0 6px 4px; }
+.page-title h1 { font-size: 28px; font-weight: 720; letter-spacing: -.035em; }
+.group-label { margin: 14px 0 0 4px; color: var(--muted); font-size: 13px; font-weight: 600; }
+.group-note { display: flex; gap: 7px; margin: 0 4px; color: var(--quiet); font-size: 13px; line-height: 1.5; }
+.group-note svg { margin-top: 2px; }
+.group { display: grid; overflow: hidden; border-radius: var(--radius); background: var(--card); }
+.row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 62px; padding: 10px 14px; text-align: left; transition: background .15s; }
+.row + .row { box-shadow: inset 0 1px 0 var(--stroke); }
+.row .coin { width: 36px; height: 36px; }
+.row .coin svg { width: 20px; height: 20px; }
+.row-icon { display: grid; place-items: center; width: 36px; height: 36px; flex: none; border-radius: 10px; background: var(--surface); color: var(--muted); }
+.row-text { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.row-text strong { font-size: 15px; font-weight: 600; }
+.row-text small { color: var(--muted); font-size: 13px; }
+.row-chevron { color: var(--quiet); }
+.version { margin-top: 18px; color: var(--quiet); font-size: 12px; text-align: center; }
+
+.segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 14px; background: var(--card); }
+.segmented button { min-height: 40px; border-radius: 10px; color: var(--muted); font-size: 14px; font-weight: 620; transition: background .15s, color .15s; }
+.segmented button[aria-pressed='true'] { background: var(--blue); color: #fff; }
+
+.toggle { position: relative; width: 48px; height: 44px; flex: none; }
+.toggle::before { content: ''; position: absolute; inset: 9px 0; border-radius: 16px; background: #2c2c33; transition: background-color .2s ease; }
+.toggle span { position: absolute; top: 12px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform .2s ease; }
+.toggle[aria-checked='true']::before { background: var(--blue); }
+.toggle[aria-checked='true'] span { transform: translateX(22px); }
+.setting-select { min-height: 36px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--stroke); background: var(--surface); font-size: 14px; }
+
+.empty-state { display: grid; justify-items: center; gap: 8px; padding: 56px 20px; text-align: center; }
+.empty-state h2 { font-size: 18px; font-weight: 650; }
+.empty-state p { color: var(--muted); font-size: 14px; line-height: 1.5; max-width: 30ch; }
+.empty-icon { display: grid; place-items: center; width: 56px; height: 56px; margin: 0 auto 6px; border-radius: 50%; background: var(--card); color: var(--muted); }
+
+/* Sheets and dialogs */
+.dialog {
+  width: min(420px, calc(100% - 32px)); max-height: calc(100dvh - 32px); padding: 0;
+  border: 1px solid var(--stroke); border-radius: 24px; background: var(--surface); color: var(--text);
+  box-shadow: 0 30px 90px #000c;
+}
+.dialog[open] { animation: dialog-in .2s cubic-bezier(.2, .8, .2, 1); }
+.dialog::backdrop { background: #000c; }
+@keyframes dialog-in { from { opacity: 0; transform: translateY(12px) scale(.98); } }
+.dialog-content { display: grid; gap: 14px; padding: 18px 20px 22px; }
+.sheet-handle { display: none; }
+.dialog-head { display: grid; grid-template-columns: 40px 1fr 40px; align-items: center; }
+.dialog-head h2 { grid-column: 2; font-size: 17px; font-weight: 650; text-align: center; }
+.dialog-head .icon-button { grid-column: 3; }
+.dialog-intro { color: var(--muted); font-size: 14px; line-height: 1.55; }
+
+.form { display: grid; gap: 14px; }
+fieldset.form { min-width: 0; margin: 0; padding: 0; border: 0; }
+.field { display: grid; gap: 7px; color: var(--muted); font-size: 13px; font-weight: 560; }
+.field input, .field textarea, .field select {
+  width: 100%; min-height: 50px; padding: 12px 14px; border-radius: 14px;
+  border: 1px solid var(--stroke); background: var(--card); color: var(--text); font-size: 16px; font-weight: 450;
+  transition: border-color .15s;
+}
+.field textarea { resize: vertical; line-height: 1.5; }
+.field input:focus, .field textarea:focus, .field select:focus { border-color: var(--blue); outline: none; }
+.field-note { color: var(--quiet); font-size: 13px; line-height: 1.5; }
+.address-field { font-size: 13px !important; }
+.notice { padding: 12px 14px; border-radius: 12px; background: var(--card); color: var(--muted); font-size: 13px; line-height: 1.5; }
+.notice--error { background: #ff6b6b14; color: #ffb3b3; }
+/* ErrorSlot grows from 0 to the message height, gives the form gap back when closed */
+.slot { overflow: clip; overflow-clip-margin: 4px; }
+.slot:not(.open) { height: 0; margin-top: var(--slot-gap, -14px); opacity: 0; }
+.error-slot .notice:not(.notice--error) { background: #ff6b6b14; color: #ffb3b3; }
+.lock-card .error-slot { width: 100%; }
+.success { color: var(--green); font-size: 13px; line-height: 1.5; }
+.two-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+.choice {
+  display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px; text-align: left;
+  border-radius: var(--radius); background: var(--card); color: var(--quiet); transition: background .15s;
+}
+.choice > span:nth-child(2) { display: grid; gap: 2px; flex: 1; }
+.choice strong { color: var(--text); font-size: 15px; font-weight: 620; }
+.choice small { color: var(--muted); font-size: 13px; }
+.choice-icon { display: grid; place-items: center; width: 42px; height: 42px; flex: none; border-radius: 12px; background: #397bff22; color: var(--link); }
+
+.phrase-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; user-select: none; }
+.phrase-grid li { display: flex; align-items: baseline; gap: 6px; padding: 10px; border-radius: 10px; background: var(--card); font-size: 14px; font-weight: 580; }
+.phrase-grid span { color: var(--quiet); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+.qr-wrap { display: grid; place-items: center; min-height: 210px; color: var(--muted); font-size: 13px; }
+.qr-wrap img { width: 200px; height: 200px; border-radius: 16px; background: #fff; }
+
+.review-list { display: grid; overflow: hidden; border-radius: var(--radius); background: var(--card); }
+.review-list div { display: flex; justify-content: space-between; gap: 16px; padding: 13px 14px; }
+.review-list div + div { box-shadow: inset 0 1px 0 var(--stroke); }
+.review-list dt { color: var(--muted); font-size: 14px; white-space: nowrap; }
+.review-list dd { min-width: 0; font-size: 14px; font-weight: 580; text-align: right; overflow-wrap: anywhere; }
+
+.asset-detail { display: grid; justify-items: center; gap: 6px; padding: 6px 0 4px; text-align: center; }
+.asset-detail .coin { width: 64px; height: 64px; margin-bottom: 6px; }
+.asset-detail .coin svg { width: 36px; height: 36px; }
+.asset-detail strong { font-size: 30px; font-weight: 720; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
+.asset-detail p { color: var(--muted); font-size: 14px; }
+
+.text-link { display: inline-flex; align-items: center; gap: 6px; color: var(--link); font-size: 14px; font-weight: 580; }
+
+/* Toasts */
+.toast {
+  position: fixed; z-index: 40; left: 50%; bottom: calc(var(--tabbar) + env(safe-area-inset-bottom) + 14px);
+  display: flex; align-items: center; gap: 9px; max-width: calc(100% - 32px); padding: 11px 16px;
+  border-radius: 999px; background: var(--card); border: 1px solid var(--stroke); box-shadow: 0 12px 40px #0009;
+  font-size: 14px; font-weight: 560; pointer-events: none; opacity: 0; transform: translate(-50%, 8px); transition: opacity .16s, transform .16s;
+}
+.toast svg { color: var(--green); }
+.toast.visible { opacity: 1; transform: translate(-50%, 0); }
+.update-banner { position: fixed; z-index: 39; left: 50%; transform: translateX(-50%); bottom: calc(var(--tabbar) + env(safe-area-inset-bottom) + 64px); border-radius: 999px !important; }
+
+/* Sidebar + desktop-only panels, hidden on phones */
+.sidebar, .side-card { display: none; }
+.app-body { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.home { display: flex; flex-direction: column; }
+.summary { display: grid; gap: 22px; }
+.home-side { display: grid; gap: 12px; }
+.home-side:empty { display: none; }
+
+
+@keyframes sheet-in { from { transform: translateY(100%); } to { transform: none; } }
+
+/* Bottom sheets */
+:root[data-layout='phone'] {
+  .dialog {
+    inset: auto 0 var(--keyboard, 0px); width: 100%; max-width: none; max-height: calc(var(--viewport, 100dvh) - env(safe-area-inset-top) - 12px);
+    /* No transition on bottom, it tracks the keyboard directly */
+    margin: 0; border-radius: 24px 24px 0 0; border-width: 1px 0 0;
+  }
+  .dialog[open] { animation: sheet-in .26s cubic-bezier(.2, .8, .2, 1); }
+  .dialog-content { padding: 8px var(--gutter) calc(20px + env(safe-area-inset-bottom)); }
+  .dialog { overscroll-behavior: contain; }
+  .sheet-handle { display: block; width: 38px; height: 5px; margin: 0 auto 2px; border-radius: 4px; background: #3a3a42; }
+}
+
+@media (max-width: 360px) {
+  :root { --gutter: 12px; }
+  .actions { gap: 6px; }
+  .action { font-size: 12px; }
+  .phrase-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .account-text strong { font-size: 14px; }
+}
+
+/* Animations stay on with Reduce Motion, they're short. */
+
+:root[data-layout='phone'] {
+  .home-side:not(:has(.promo)) { display: none; }
+}
+
+.lock-screen {
+  /* Fixed-height logo area, so the card under it can grow (forgot password, errors) without moving anything */
+  display: grid; grid-template-rows: clamp(150px, 32dvh, 320px) auto 1fr; justify-items: center;
+  min-height: 100dvh; padding: 16px 16px 24px; outline: none;
+}
+.lock-top { display: grid; place-items: center; align-self: stretch; padding: 12px 0; }
+.lock-card { width: min(100%, 360px); justify-items: center; text-align: center; }
+.lock-card h1 { margin: 0 0 6px; font-size: 22px; font-weight: 680; letter-spacing: -.02em; }
+.lock-card .field, .lock-card .notice, .lock-card .button { width: 100%; }
+.password-rules { display: grid; gap: 6px; margin: -4px 0 0; padding: 0; list-style: none; font-size: 13px; color: var(--danger); }
+.password-rules li { display: flex; align-items: center; gap: 7px; }
+.password-rules li.met { color: var(--green); }
+.button.danger-fill { background: var(--danger); color: #1a0606; }
+.avatar-emoji { font-size: 20px; line-height: 1; }
+.wallet-list { display: grid; gap: 8px; margin: 0 0 14px; padding: 0; list-style: none; }
+.wallet-list li { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 6px; border-radius: 14px; background: var(--card); border: 1px solid transparent; }
+.wallet-list li.active { border-color: #397bff66; }
+.wallet-pick { display: flex; flex: 1; align-items: center; gap: 12px; min-height: 48px; padding: 0 6px; text-align: left; font-size: 15px; }
+.wallet-pick strong { flex: 1; font-weight: 620; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wallet-pick svg { color: var(--blue); }
+.wallet-emoji { display: grid; place-items: center; width: 40px; height: 40px; flex: none; border-radius: 50%; background: var(--surface); font-size: 22px; }
+.wallet-emoji--large { width: 72px; height: 72px; margin: 0 auto; font-size: 40px; }
+.emoji-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.emoji-grid button { aspect-ratio: 1; border-radius: 12px; background: var(--card); font-size: 22px; border: 1px solid transparent; }
+
+.attempts-left { color: var(--danger); font-size: 13px; }
+.last-try { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 12px 14px; border-radius: 12px; background: #ff6b6b1f; border: 1px solid #ff6b6b66; color: #ffb3b3; font-size: 13px; line-height: 1.45; text-align: left; }
+.last-try svg { flex: none; margin-top: 1px; color: var(--danger); }
+.last-try strong { display: block; color: var(--danger); font-size: 14px; }
+
+/* Motion: short, eased, transform/opacity only */
+:root { --ease-out: cubic-bezier(.2, .8, .2, 1); }
+/* Entry animations only set the start state, so they end on the element's own style (a disabled button stays dimmed) */
+@keyframes rise-in { from { opacity: 0; transform: translateY(8px); } }
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes pop-in { from { opacity: 0; transform: scale(.96); } }
+.app { animation: fade-in .3s ease-out backwards; }
+.home, .page { animation: rise-in .32s var(--ease-out) backwards; }
+.summary { animation: pop-in .36s var(--ease-out) backwards; }
+.token-list > *, .group > *, .wallet-list > li, .side-card, .actions > * { animation: rise-in .34s var(--ease-out) backwards; }
+.token-list > :nth-child(2), .group > :nth-child(2), .wallet-list > li:nth-child(2), .actions > :nth-child(2) { animation-delay: 40ms; }
+.token-list > :nth-child(3), .group > :nth-child(3), .wallet-list > li:nth-child(3), .actions > :nth-child(3) { animation-delay: 80ms; }
+.token-list > :nth-child(4), .group > :nth-child(4), .wallet-list > li:nth-child(4), .actions > :nth-child(n+4) { animation-delay: 120ms; }
+.token-list > :nth-child(n+5), .group > :nth-child(n+5), .wallet-list > li:nth-child(n+5) { animation-delay: 160ms; }
+.balance-amount { display: inline-block; animation: pop-in .3s var(--ease-out) backwards; }
+/* Long totals shrink to fit on narrow phones */
+.hero-amount .balance-amount { font-size: min(1em, calc((min(100vw, var(--app-width)) - 48px) / (var(--chars) * .6))); }
+.lock-card { animation: rise-in .4s var(--ease-out) backwards; }
+.lock-card .attempts-left, .lock-card .last-try, .lock-card .notice { animation: pop-in .22s var(--ease-out) backwards; }
+.dialog[open]::backdrop { animation: fade-in .2s ease-out; }
+.password-rules li { transition: color .2s; }
+.emoji-grid button { transition: transform .12s var(--ease-out), border-color .15s, background .15s; }
+.wallet-emoji--large { animation: pop-in .25s var(--ease-out) backwards; }
+
+/* Press feedback */
+.action, .token, .row, .round-button, .icon-button, .wallet-pick, .emoji-grid button, .tabbar a, .side-nav a, .account, .choice, .promo, .side-network {
+  transition: transform .14s var(--ease-out), background .15s, color .15s, border-color .15s, opacity .25s;
+}
+.action:active:not(:disabled), .token:active, button.row:active, a.row:active, .wallet-pick:active, .choice:active, .promo:active, .side-network:active { transform: scale(.98); }
+.round-button:active:not(:disabled), .icon-button:active:not(:disabled), .emoji-grid button:active, .account:active { transform: scale(.94); }
+.tabbar a svg { transition: transform .2s var(--ease-out); }
+.tabbar a:active svg { transform: scale(.88); }
+.tabbar a[aria-current='page'] svg { transform: scale(1.08); }
+.credits-title { display: block; margin-bottom: 4px; color: var(--text); font-size: 16px; }
+.credits-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.credits-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-radius: 12px; background: var(--card); }
+.credits-list span { display: grid; line-height: 1.3; }
+.credits-list strong { font-size: 14px; font-weight: 620; }
+.credits-list small, .credits-list em { color: var(--muted); font-size: 12px; font-style: normal; }
+
+/* Emoji picker */
+.emoji-picker { display: grid; gap: 8px; }
+.emoji-tabs { display: flex; gap: 4px; overflow-x: auto; padding: 4px; border-radius: 14px; background: var(--card); scrollbar-width: none; }
+.emoji-tabs button { flex: 1 0 36px; height: 36px; border-radius: 10px; font-size: 19px; opacity: .55; filter: grayscale(.6); transition: background .2s, opacity .2s, filter .2s, transform .15s var(--ease-out); }
+.emoji-tabs button[aria-selected="true"] { opacity: 1; filter: none; }
+.emoji-category { margin: 2px 4px 0; color: var(--muted); font-size: 12px; font-weight: 620; text-transform: uppercase; letter-spacing: .05em; }
+.emoji-picker .emoji-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); max-height: 216px; overflow-y: auto; overscroll-behavior: contain; padding: 2px; animation: fade-in .2s ease; }
+.emoji-picker .emoji-grid button { font-size: 21px; border-radius: 10px; }
+@media (max-width: 380px) { .emoji-picker .emoji-grid { grid-template-columns: repeat(7, minmax(0, 1fr)); } }
+
+/* Sheet steps slide in, sheet resizes */
+@keyframes pane-in { from { opacity: 0; transform: translateX(22px); } }
+@keyframes pane-back { from { opacity: 0; transform: translateX(-22px); } }
+@keyframes title-in { from { opacity: 0; transform: translateY(5px); } }
+@keyframes shake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+@keyframes check-pop { 0% { opacity: 0; transform: scale(.4); } 60% { opacity: 1; transform: scale(1.12); } 100% { transform: scale(1); } }
+@keyframes ring { from { box-shadow: 0 0 0 0 #3ddc8466; } to { box-shadow: 0 0 0 22px #3ddc8400; } }
+.dialog-size { transition: height .34s var(--ease-out); overflow: clip; overflow-clip-margin: 8px; }
+.dialog-measure { display: grid; }
+.dialog-pane { display: grid; gap: 14px; animation: pane-in .34s var(--ease-out) backwards; }
+.dialog-pane--back { animation-name: pane-back; }
+.dialog-title { animation: title-in .3s var(--ease-out) backwards; }
+
+/* Setup and form feedback */
+.dialog-pane > .choice { animation: rise-in .36s var(--ease-out) backwards; }
+.dialog-pane > .choice:nth-of-type(1) { animation-delay: 60ms; }
+.dialog-pane > .choice:nth-of-type(2) { animation-delay: 120ms; }
+.choice .choice-icon { transition: transform .3s var(--ease-out), background .2s; }
+.phrase-grid { animation: fade-in .3s ease-out .1s backwards; }
+.notice--error { animation: fade-in .15s ease; }
+/* Errors shake the text, never the box or field */
+.notice--error > span { display: inline-block; animation: shake .4s ease; }
+/* Password dots: real glyphs hidden, bullets drawn on top so each can fade in */
+.pw-input { position: relative; display: block; }
+.field .pw-input input { color: transparent; caret-color: var(--text); }
+.field .pw-input input::placeholder { color: var(--muted); }
+.pw-dots { position: absolute; inset: 1px 15px; display: flex; align-items: center; overflow: hidden; pointer-events: none; color: var(--text); font-size: 16px; font-weight: 450; white-space: pre; }
+.pw-dots span { animation: dot-in .18s var(--ease-out) backwards; }
+@keyframes dot-in { from { opacity: 0; transform: scale(.3); } }
+.pw-dots span.pw-out { animation: dot-out var(--dot-out, .09s) ease-in forwards; }
+@keyframes dot-out { to { opacity: 0; transform: scale(.3); } }
+.field .pw-input--filled input { caret-color: transparent; }
+/* Wrong password: red border until the next keystroke */
+.field.field--wrong input, .field.field--wrong input:focus { border-color: var(--danger); }
+.field.field--wrong input:focus { box-shadow: 0 0 0 4px #ff6b6b26; }
+/* Lock screen error: a quiet line under the field */
+.lock-card .notice--error { background: none; padding: 0; margin-top: -4px; text-align: center; color: #f09a9a; font-size: 13px; font-weight: 500; }
+.password-rules li svg { transition: transform .25s var(--ease-out), color .2s; }
+.password-rules li.met svg { animation: check-pop .3s var(--ease-out); }
+.field input, .field textarea { transition: border-color .2s, box-shadow .2s; }
+.field input:focus, .field textarea:focus { box-shadow: 0 0 0 4px #397bff26; }
+.button { transition: background .15s, transform .14s var(--ease-out), border-color .15s, opacity .2s, box-shadow .2s; }
+.button svg { transition: transform .2s var(--ease-out); }
+.setup-done { display: grid; justify-items: center; gap: 8px; padding: 18px 0 10px; text-align: center; }
+.setup-done-check { display: grid; place-items: center; width: 76px; height: 76px; margin-bottom: 8px; border-radius: 50%; background: var(--green); color: #04140b; animation: check-pop .5s var(--ease-out) backwards, ring 1s ease-out .3s; }
+.setup-done strong { font-size: 20px; font-weight: 700; animation: rise-in .35s var(--ease-out) .15s backwards; }
+.setup-done p { color: var(--muted); font-size: 14px; animation: rise-in .35s var(--ease-out) .22s backwards; }
+.qr-wrap img { animation: pop-in .35s var(--ease-out) backwards; }
+.review-list > div { animation: rise-in .32s var(--ease-out) backwards; }
+.review-list > div:nth-child(2) { animation-delay: 40ms; }
+.review-list > div:nth-child(3) { animation-delay: 80ms; }
+.review-list > div:nth-child(4) { animation-delay: 120ms; }
+.empty-icon { animation: pop-in .4s var(--ease-out) backwards; }
+.toast { transition: opacity .2s, transform .3s cubic-bezier(.34, 1.56, .64, 1); }
+.toast svg { animation: check-pop .35s var(--ease-out); }
+
+/* Switches animate themselves, no press scale on the row */
+.row:has(> .toggle), .row:has(> .toggle):active { transform: none !important; }
+.toggle:active span { transform: none; }
+.toggle[aria-checked='true']:active span { transform: translateX(22px); }
+
+/* Press feedback for the rest */
+.segmented button:active, .emoji-tabs button:active { transform: scale(.96); }
+.segmented button, .emoji-tabs button { transition: background .2s, color .2s, transform .12s ease; }
+.text-link, .landing-nav-link, .landing-brand, .sidebar-brand, .landing-community, .landing-footer a, .side-nav a, .setting-select { transition: opacity .12s ease, color .15s, background .15s; }
+.text-link:active, .landing-nav-link:active, .landing-brand:active, .sidebar-brand:active, .landing-community:active, .landing-footer a:active, .setting-select:active { opacity: .6; }
+
+/* Sheets scroll vertically only (slide-ins and focus rings poke out sideways) */
+.dialog { overflow-x: hidden; overscroll-behavior-x: none; }
+/* Clip both axes while the sheet resizes. 4px padding/negative margin keeps focus rings inside the clip. */
+.dialog-size { overflow: clip; overflow-clip-margin: 0; margin: -4px 0; }
+.dialog-measure { padding: 4px 0; }
+
+/* Sheet actions split evenly (wide home tiles overflowed and pushed the close button out) */
+.dialog .actions.actions--sheet { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.dialog-head .icon-button { justify-self: end; }
+
+/* Keep the page bounce, extend sidebar/header/tab bar past the edges */
+/* Box-shadows, not pseudo-elements, so the sidebar doesn't become scrollable */
+.sidebar { box-shadow: 0 -100vh 0 var(--surface), 1px -100vh 0 var(--stroke), 0 100vh 0 var(--surface), 1px 100vh 0 var(--stroke); }
+.app-header::before { content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 100vh; background: var(--bg); pointer-events: none; }
+.tabbar::after { content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 100vh; background: inherit; pointer-events: none; }
+
+/* Manage tokens */
+.list-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.list-head .list-title { margin-bottom: 0; }
+.round-button.small, .icon-button.small { width: 34px; height: 34px; }
+.token--manage { justify-content: center; min-height: 52px; gap: 8px; color: var(--muted); background: transparent; border: 1px dashed var(--stroke); font-size: 14px; font-weight: 600; }
+button.text-link { padding: 0; }
+.manage-label { margin: 2px 4px 0; }
+/* One scroll for the sheet, rows animate via FLIP (Manage.tsx) */
+.manage-body { display: grid; gap: 8px; }
+.manage-row { transition: background .15s, box-shadow .2s, transform .15s; }
+.manage-row.is-sorting { transition: transform .2s cubic-bezier(.2, .8, .2, 1), background .15s; }
+.manage-row.is-dragging { transition: none; cursor: grabbing; }
+.manage-list:has(.is-dragging) { overflow: visible; }
+/* Lifted row can spill into the sheet padding */
+.dialog-size:has(.is-dragging) { overflow-x: visible; }
+.manage-add { transition: transform .15s var(--ease-out), background .15s; }
+.manage-row:active .manage-add { transform: scale(.88); }
+.manage-row { gap: 10px; min-height: 60px; padding: 8px 8px 8px 6px; }
+/* Same row height in both lists (grip is 44px) so moving a coin never resizes the sheet */
+.manage-row .coin, .manage-row .coin--token { width: 36px; height: 36px; }
+.manage-row.is-dragging { position: relative; z-index: 1; background: var(--card-hover); box-shadow: 0 10px 30px #0008; }
+.grip { display: grid; place-items: center; width: 28px; height: 40px; color: var(--quiet); cursor: grab; touch-action: none; }
+.grip:active { cursor: grabbing; color: var(--text); }
+.manage-actions { display: flex; gap: 2px; }
+.manage-remove { color: var(--danger); }
+.manage-add { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; color: var(--link); background: #397bff1f; }
+.manage-empty { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding: 0 16px; color: var(--muted); font-size: 14px; text-align: center; opacity: 0; pointer-events: none; transition: opacity .2s; }
+.manage-empty.shown { opacity: 1; transition-delay: .1s; }
+.manage-list:has(> .manage-empty) { min-height: 60px; }
+.coin--token b[data-len='4'] { font-size: 8.5px; letter-spacing: -.06em; }
+.asset-detail .coin--token b[data-len='4'] { font-size: 14px; }
+
+/* Charts page */
+.charts-range { grid-template-columns: repeat(4, minmax(44px, auto)); }
+.charts-range button { min-height: 32px; padding: 0 10px; font-size: 13px; }
+.chart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.chart-card { display: grid; gap: 12px; padding: 16px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--stroke); animation: rise-in .27s var(--ease-out) backwards; }
+.chart-card header { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.chart-name { display: grid; flex: 1; min-width: 0; line-height: 1.3; }
+.chart-name strong { font-size: 15px; font-weight: 640; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chart-name small, .chart-price small { color: var(--muted); font-size: 12px; }
+.chart-price { display: grid; justify-items: end; line-height: 1.3; }
+.chart-price strong { font-size: 15px; font-weight: 640; font-variant-numeric: tabular-nums; }
+.sparkline { display: block; width: 100%; height: 110px; overflow: visible; }
+.sparkline-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.sparkline--up .sparkline-line { stroke: var(--green); }
+.sparkline--up .sparkline-area { fill: #3ddc8414; }
+.sparkline--down .sparkline-line { stroke: var(--danger); }
+.sparkline--down .sparkline-area { fill: #ff6b6b14; }
+.chart-loading { height: 110px; border-radius: 12px; background: linear-gradient(90deg, var(--card), var(--card-hover), var(--card)); background-size: 200% 100%; animation: shimmer 1.2s linear infinite; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+.chart-empty { display: grid; place-items: center; height: 110px; color: var(--muted); font-size: 13px; }
+/* Whole card opens the full chart */
+.chart-card { position: relative; transition: background .15s, border-color .15s, transform .12s ease; }
+.chart-hit { position: absolute; inset: 0; z-index: 1; border-radius: inherit; }
+.chart-hit:focus-visible { outline-offset: -2px; }
+.chart-card .chart-empty .text-link { position: relative; z-index: 2; }
+.chart-card:has(.chart-hit:active) { transform: scale(.985); }
+/* Direct children only, the full chart sheet inside keeps its own height */
+
+/* Full chart view */
+.chart-view { display: grid; gap: 14px; }
+.chart-view-price { display: grid; gap: 4px; padding: 0 2px; }
+.chart-view-price strong { font-size: 32px; font-weight: 720; letter-spacing: -.035em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.chart-view-price small { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.chart-view-plot { padding: 14px 12px; border-radius: var(--radius); background: var(--card); }
+.chart-view-plot :is(.sparkline, .candles, .chart-loading, .chart-empty) { height: 220px; }
+:root[data-layout='phone'] .chart-view-plot :is(.sparkline, .candles, .chart-loading, .chart-empty) { height: 190px; }
+.candles { display: block; width: 100%; height: 110px; overflow: visible; }
+.candles line { stroke-width: 1.2; }
+.candle--up line { stroke: var(--green); }
+.candle--up rect { fill: var(--green); }
+.candle--down line { stroke: var(--danger); }
+.candle--down rect { fill: var(--danger); }
+.chart-view-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.chart-view-stats div { display: grid; gap: 3px; padding: 12px 14px; border-radius: 14px; background: var(--card); }
+.chart-view-stats dt { color: var(--muted); font-size: 12px; font-weight: 600; }
+.chart-view-stats dd { font-size: 15px; font-weight: 640; font-variant-numeric: tabular-nums; }
+.chart-view-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.chart-view .charts-range { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.chart-kind button { min-height: 32px; padding: 0 14px; font-size: 13px; }
+:root[data-layout='phone'] .chart-view-controls { grid-template-columns: 1fr; }
+:root[data-layout='phone'] .chart-kind { grid-template-columns: 1fr 1fr; }
+:root[data-layout='phone'] .chart-view-controls button { min-height: 44px; }
+
+/* Chart motion: lines draw left to right, candles grow from the middle one by one, % and stats fade in on every switch */
+.sparkline { animation: chart-draw .72s cubic-bezier(.45, 0, .2, 1) backwards; }
+@keyframes chart-draw { from { clip-path: inset(-10px 100% -10px 0); } to { clip-path: inset(-10px -10px -10px 0); } }
+/* Candles get the same sweep on first show, range switches glide (Charts.tsx) */
+.candles { animation: chart-draw .72s cubic-bezier(.45, 0, .2, 1) backwards; }
+.rolling { font-variant-numeric: tabular-nums; }
+
+/* Loading labels (Unlocking…, Deleting…) slide up */
+.label-swap { display: inline-flex; align-items: center; justify-content: center; gap: 8px; animation: label-in .28s cubic-bezier(.2, .8, .2, 1) backwards; }
+@keyframes label-in { from { opacity: 0; transform: translateY(8px); filter: blur(2px); } }
+
+/* Hide/show balance: amounts blur into the dots and back, rippling down the list */
+.mask-swap { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+.home--mask-anim .mask-swap { animation: mask-swap .24s cubic-bezier(.2, .8, .2, 1) backwards; }
+/* Lighter version: small blur + 3px drop */
+@keyframes mask-swap {
+  0% { opacity: 0; filter: blur(3px); transform: translateY(-3px); }
+  100% { opacity: 1; filter: blur(0); transform: none; }
+}
+
+/* Segmented toggle pill (Toggle sets --n and --i) */
+.segmented--slide { position: relative; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); }
+.segmented--slide .segmented-pill { position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc((100% - 8px - (var(--n) - 1) * 4px) / var(--n)); border-radius: 10px; background: var(--blue); transform: translateX(calc(var(--i) * (100% + 4px))); transition: transform .32s cubic-bezier(.3, 1.25, .5, 1); }
+.segmented--slide button { position: relative; z-index: 1; }
+.segmented--slide button[aria-pressed='true'] { background: transparent; color: #fff; }
+.segmented--slide button { transition: color .25s, transform .12s ease; }
+
+/* Time labels under the full chart: equal columns, all centered, so a range switch never shifts them */
+.chart-axis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin-top: 8px; color: var(--quiet); font-size: 11px; font-weight: 550; font-variant-numeric: tabular-nums; text-align: center; white-space: nowrap; }
+
+/* Sheet drag area (handle + header), phones */
+.sheet-grab { display: grid; gap: 14px; }
+:root[data-layout='phone'] .sheet-grab { touch-action: none; cursor: grab; margin: -8px calc(var(--gutter) * -1) 0; padding: 8px var(--gutter) 0; }
+/* Phone sheets: paint the sheet color a screen below the bottom edge so a bounce never shows a gap */
+/* Offset by a screen + corner radius so the rounded corners stay transparent */
+:root[data-layout='phone'] .dialog { box-shadow: 0 calc(100vh + 24px) 0 100vh var(--surface), 0 -12px 40px #0008; }
+/* Phone sheets: close button top right, level with the handle */
+:root[data-layout='phone'] .dialog-content { position: relative; }
+:root[data-layout='phone'] .dialog-head .icon-button { position: absolute; top: 10px; right: 10px; }
+.dialog.dialog--closing { animation: dialog-out .18s ease-in forwards; }
+.dialog.dialog--closing::backdrop { animation: fade-out .26s ease-out forwards; }
+@keyframes dialog-out { to { opacity: 0; transform: translateY(8px) scale(.98); } }
+@keyframes fade-out { to { opacity: 0; } }
+:root[data-layout='phone'] .dialog.dialog--closing { animation: sheet-out .24s cubic-bezier(.4, 0, 1, 1) forwards; }
+@keyframes sheet-out { to { transform: translateY(100%); } }
+.charts-actions { display: flex; align-items: center; gap: 8px; }
+.down, .token small.down { color: var(--danger); }
+.pill-down { padding: 2px 8px; border-radius: 7px; color: var(--danger); background: #ff6b6b19; font-size: 14px; }
+.token-value small.up, .token-value small.down { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Picker dropdown (replaces <select>) */
+.picker { position: relative; }
+.picker-button { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 8px 14px 8px 10px; border-radius: 14px; border: 1px solid var(--stroke); background: var(--surface); color: var(--text); text-align: left; transition: border-color .15s, background .15s; }
+.picker.open .picker-button, .picker-button:focus-visible { border-color: var(--blue); outline: none; }
+.picker-button .coin, .picker-list .coin, .picker-button .token-icon, .picker-list .token-icon { width: 32px; height: 32px; flex: none; }
+.picker-text { display: grid; flex: 1; min-width: 0; line-height: 1.25; }
+.picker-text strong { font-size: 15px; font-weight: 620; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-text small { color: var(--muted); font-size: 12px; font-weight: 500; }
+.picker-chevron { flex: none; color: var(--muted); transition: transform .2s var(--ease-out); }
+.picker.open .picker-chevron { transform: rotate(180deg); }
+.picker-list { display: grid; gap: 2px; margin: 6px 0 0; padding: 6px; list-style: none; border-radius: 14px; border: 1px solid var(--stroke); background: var(--card); max-height: var(--picker-max, 280px); overflow-y: auto; animation: picker-in .18s var(--ease-out); }
+.picker-list li { display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 6px 10px; border-radius: 10px; cursor: pointer; }
+.picker-list li.active { background: var(--card-hover); }
+.picker-list li[aria-selected='true'] .picker-text strong { color: var(--text); }
+.picker-check { flex: none; color: var(--blue); }
+@keyframes picker-in { from { opacity: 0; transform: translateY(-4px); } }
+.picker--compact .picker-button { min-height: 36px; padding: 0 10px; gap: 6px; border-radius: 10px; font-size: 14px; }
+.picker--compact .picker-text strong { font-size: 14px; font-weight: 560; }
+.picker--compact .picker-list { min-width: 130px; }
+.picker--compact .picker-list li { min-height: 38px; }
+
+/* Inline validation message (see main.tsx) */
+.field[data-error] input, .field[data-error] textarea { border-color: var(--danger); }
+.field[data-error]::after { content: attr(data-error); display: block; color: #ffb3b3; font-size: 13px; font-weight: 500; animation: shake .4s ease, fade-in .15s ease; }
+/* Touch targets 44px+ on phones */
+:root[data-layout='phone'] .round-button.small, :root[data-layout='phone'] .icon-button.small { width: 44px; height: 44px; }
+:root[data-layout='phone'] .picker--compact .picker-button { min-height: 44px; padding: 0 12px; }
+:root[data-layout='phone'] .picker--compact .picker-list li { min-height: 44px; }
+:root[data-layout='phone'] .grip { width: 44px; height: 44px; }
+:root[data-layout='phone'] .round-button, :root[data-layout='phone'] .icon-button { width: 44px; height: 44px; }
+/* Slimmer tab bar on phones (tap area still 56px) */
+:root[data-layout='phone'] { --tabbar: 56px; }
+:root[data-layout='phone'] .tabbar a svg { width: 21px; height: 21px; }
+.dialog:focus { outline: none; }
+/* Lock screen: big mark, name under it */
+.brand--stacked { flex-direction: column; align-items: center; gap: clamp(10px, 2vh, 20px); }
+.brand--stacked { --mark: clamp(72px, 16vh, 168px); }
+.brand--stacked img { width: var(--mark); height: var(--mark); }
+/* "Still Wallet" matches the visible mark width (96% of the image box). Inter at this weight/tracking is ~4.62x the font size wide. */
+.brand--stacked strong { font-size: calc(var(--mark) * .2077); font-weight: 720; letter-spacing: -.045em; white-space: nowrap; }
+/* Dragging: dividers follow the live order (Manage.tsx). Line above every row but the top one, none on the lifted row. */
+.manage-list .row.is-sorting:not(.is-dragging) { box-shadow: none; }
+.manage-list .row.is-sorting.divider { box-shadow: inset 0 1px 0 var(--stroke); }
+.manage-row.is-dragging { border-radius: 14px; }
+/* FLIP only. React re-inserts moved rows, which would restart the fade-in and blank them mid-drag. */
+.manage-list > * { animation: none; }
+.manage-list .row.is-sorting { will-change: transform; }
+.is-reordering, .is-reordering * { user-select: none; -webkit-user-select: none; cursor: grabbing; }
+.is-reordering .dialog { overscroll-behavior: none; touch-action: none; }
+/* Header buttons: eye blinks, padlock snaps shut before locking */
+.icon-swap { display: grid; animation: icon-swap .26s var(--ease-out); }
+@keyframes icon-swap { 0% { opacity: 0; transform: scaleY(.2) rotate(-12deg); } 60% { opacity: 1; transform: scaleY(1.1); } 100% { transform: none; } }
+.lock-button.locking svg { animation: lock-snap .22s cubic-bezier(.3, 1.6, .5, 1); }
+.lock-button.locking svg path:first-child, .lock-button.locking svg rect + path { transform-origin: center; }
+@keyframes lock-snap { 0% { transform: translateY(-2px) scale(1); } 50% { transform: translateY(2px) scale(.88); color: var(--text); } 100% { transform: translateY(0) scale(1); color: var(--blue); } }
+/* Settings dropdowns are portaled to <body> */
+.picker-float { z-index: 1000; }
+.picker-float .picker-list { margin: 0; box-shadow: 0 16px 40px #000a; }
+.picker-float.picker--compact .picker-list li { min-height: 40px; }
+:root[data-layout='phone'] .picker-float.picker--compact .picker-list li { min-height: 44px; }
+.refresh-icon { display: inline-grid; place-items: center; }
+.refresh-icon.spinning { animation: spin .85s linear infinite; }
+/* Last turn eases from spin speed to 0deg */
+.refresh-icon.spin-out { animation: spin 1s cubic-bezier(.5, .6, .5, 1) 1; }
+/* Tile taps: QR pulses, Send arrow shoots up and drops back, Swap arrows shoot right and come back from the left */
+.action svg.tap.lucide-qr-code { animation: tap-scan .6s var(--ease-out); }
+.action svg.tap.lucide-arrow-up { animation: tap-send .62s var(--ease-out); }
+/* The svg's no-op animation spans both arrows so its animationend clears .tap last */
+.action svg.tap.lucide-shuffle { overflow: visible; animation: tap-hold .74s linear; }
+.action svg.tap.lucide-shuffle path { animation: tap-swap .62s var(--ease-out) backwards; }
+/* Paths 1+4+5 are the bottom arrow, 2+3 the top. Bottom goes first. */
+.action svg.tap.lucide-shuffle path:nth-child(2), .action svg.tap.lucide-shuffle path:nth-child(3) { animation-delay: 110ms; }
+@keyframes tap-scan { 0% { transform: scale(1); } 35% { transform: scale(.78); opacity: .6; } 70% { transform: scale(1.14); opacity: 1; } 100% { transform: scale(1); } }
+@keyframes tap-send { 0% { transform: none; } 40% { transform: translateY(-14px); opacity: 0; } 41% { transform: translateY(12px); opacity: 0; } 100% { transform: none; opacity: 1; } }
+@keyframes tap-swap { 0% { transform: none; } 40% { transform: translateX(14px); opacity: 0; } 41% { transform: translateX(-12px); opacity: 0; } 100% { transform: none; opacity: 1; } }
+/* Scramble cube: one hop with a full turn, lands the way it started */
+.action svg.tap.lucide-box { animation: tap-roll .62s var(--ease-out), tap-hop .62s; }
+@keyframes tap-roll { to { rotate: 360deg; } }
+@keyframes tap-hop { 0%, 100% { translate: 0 0; animation-timing-function: ease-out; } 50% { translate: 0 -3px; animation-timing-function: ease-in; } }
+@keyframes tap-hold { to { opacity: 1; } }
+/* Manage button: the three slider knobs glide to new spots and settle back */
+svg.tap.lucide-sliders-horizontal { animation: tap-hold .7s linear; }
+svg.tap.lucide-sliders-horizontal path:nth-child(3) { animation: knob-left .62s var(--ease-out); }
+svg.tap.lucide-sliders-horizontal path:nth-child(8) { animation: knob-right .62s var(--ease-out) 50ms; }
+svg.tap.lucide-sliders-horizontal path:nth-child(4) { animation: knob-left .62s var(--ease-out) 100ms; }
+@keyframes knob-left { 45% { transform: translateX(-6px); } }
+@keyframes knob-right { 45% { transform: translateX(7px); } }
+/* Soft fade just outside the icon edge */
+.action span { padding: 10px; margin: -10px; overflow: hidden; -webkit-mask-image: radial-gradient(closest-side, #000 72%, transparent); mask-image: radial-gradient(closest-side, #000 72%, transparent); }
+/* Pull to refresh: gap follows the finger then eases shut, native pull UI off */
+/* Native bounce stays at the top/bottom, our pull handles refresh */
+html[data-layout='desktop'] { overscroll-behavior-y: none; }
+.pull-refresh { display: grid; place-items: center; overflow: hidden; color: var(--muted); transition: height .35s var(--ease-out); }
+.pull-refresh > span { display: inline-grid; transition: opacity .25s, transform .35s var(--ease-out); }
+.pull-refresh.dragging, .pull-refresh.dragging > span { transition: none; }
+/* Sheet to sheet: old one keeps the dim while the new one slides over, then fades out */
+.sheet-over .dialog::backdrop { background: transparent; }
+/* Sheet underneath slides down like its X */
+:root .sheet-under.fading .dialog.dialog[open] { animation: sheet-out .24s cubic-bezier(.4, 0, 1, 1) forwards; }
+/* Optional rows: room for focus rings when open */
+/* Dropdown close reverses the open, taps pass through while fading */
+.picker-float.closing { pointer-events: none; }
+.picker-float.closing .picker-list { animation: picker-out .15s ease-in forwards; }
+@keyframes picker-out { to { opacity: 0; transform: translateY(-4px); } }
+.glide { overflow: clip; overflow-clip-margin: 4px; }
+/* Tab bar pill glides to the active tab */
+.tab-pill { position: absolute; top: 6px; left: 8px; width: calc(25% - 16px); height: calc(var(--tabbar) - 13px); border-radius: 14px; background: var(--card); transform: translateX(calc(var(--i) * (100% + 16px))); transition: transform .38s var(--ease-out), opacity .2s; pointer-events: none; }
+.tabbar a { position: relative; }
+/* New activity status pops in */
+.tx-status { display: inline-block; animation: pop-in .3s var(--ease-out) backwards; }
+/* Update banner slides up */
+.update-banner { animation: banner-in .4s var(--ease-out) backwards; pointer-events: none; cursor: default; }
+@keyframes banner-in { from { opacity: 0; transform: translate(-50%, 16px); } }
+/* Emoji picker highlight glides between items */
+.emoji-tabs, .emoji-picker .emoji-grid { position: relative; }
+.slide-ring { position: absolute; z-index: 1; left: 0; top: 0; border-radius: 10px; pointer-events: none; box-shadow: inset 0 0 0 1px var(--blue); transition: transform .32s var(--ease-out), width .32s var(--ease-out), height .32s var(--ease-out), opacity .15s; }
+.emoji-tabs .slide-ring { background: #ffffff12; }
+.emoji-grid .slide-ring { background: #397bff1f; }
+/* Range switch: labels and range name crossfade */
+.crossfade { display: inline-grid; }
+.crossfade > * { grid-area: 1 / 1; }
+.chart-view-plot .crossfade { display: grid; }
+.crossfade-out { animation: fade-out .0625s ease-out forwards; }
+.crossfade-in { animation: fade-in .0625s ease-out backwards; }
+/* Home action buttons ripple in 2x faster than the lists */
+.actions > * { animation-duration: .17s; }
+.actions > :nth-child(2) { animation-delay: 20ms; }
+.actions > :nth-child(3) { animation-delay: 40ms; }
+.actions > :nth-child(n+4) { animation-delay: 60ms; }
+/* Page behind a sheet stays put */
+:root:has(dialog[open]) { overflow: hidden; }
+/* Charts tab: header rises in with the page, cards load like the Home token rows */
+.charts-page .chart-card { animation: rise-in .34s var(--ease-out) backwards; }
+.charts-page .chart-card:nth-child(2) { animation-delay: 40ms; }
+.charts-page .chart-card:nth-child(3) { animation-delay: 80ms; }
+.charts-page .chart-card:nth-child(4) { animation-delay: 120ms; }
+.charts-page .chart-card:nth-child(n+5) { animation-delay: 160ms; }
+.settings-page .group-label { animation: rise-in .34s var(--ease-out) backwards; }
+/* Refresh stays gray until the last turn ends, so a quick refresh still reads as busy */
+:is(.round-button, .action):has(.refresh-icon:is(.spinning, .spin-out)) { opacity: .4; pointer-events: none; }
+:is(.round-button, .action):has(.refresh-icon) { transition: transform .14s var(--ease-out), background .15s, color .15s, border-color .15s, opacity .0625s; }
+.settings-page .group-label, .settings-page .group > * { animation-duration: .17s; }
+/* Each Manage card background is its own layer so it can resize while rows slide */
+.group.manage-list { position: relative; isolation: isolate; overflow: visible; background: none; }
+.manage-bg { position: absolute; inset: 0; z-index: -1; border-radius: var(--radius); background: var(--card); transform-origin: top; pointer-events: none; }
+.manage-list > .row:first-of-type { border-top-left-radius: var(--radius); border-top-right-radius: var(--radius); }
+.manage-list > .row:last-child { border-bottom-left-radius: var(--radius); border-bottom-right-radius: var(--radius); }
+.manage-body { position: relative; }
+/* Coin rows only animate position while sorting, the drop slide handles the rest */
+div.manage-row:not(.is-sorting) { transition: background .15s, box-shadow .2s; }
+/* Hide scrollbars everywhere, scrolling still works */
+* { scrollbar-width: none; }
+*::-webkit-scrollbar { display: none; }
+/* Charts: each line draws as its card comes in, same 40ms stagger */
+.charts-page .chart-card:nth-child(2) .sparkline { animation-delay: 40ms; }
+.charts-page .chart-card:nth-child(3) .sparkline { animation-delay: 80ms; }
+.charts-page .chart-card:nth-child(4) .sparkline { animation-delay: 120ms; }
+.charts-page .chart-card:nth-child(n+5) .sparkline { animation-delay: 160ms; }
+/* Range picker eases in just after the title */
+.charts-page .charts-range { animation: fade-in .15s ease-out 40ms backwards; }
+/* Error fields stay red, no blue focus ring behind */
+.field[data-error] :is(input, textarea):focus, .field.field--wrong :is(input, textarea):focus { border-color: var(--danger); box-shadow: 0 0 0 4px #ff6b6b26; }
+.lock-card.lock-card--swap { animation: pane-in .34s var(--ease-out) backwards; }
+.lock-card.lock-card--back { animation-name: pane-back; }
+/* Loading states match the final size so nothing jumps */
+.chart-axis { min-height: 1.4em; }
+.chart-card header { min-height: 36px; }
+/* About page on PC: sheets open as a centered dialog, not a bottom sheet */
+@media (pointer: fine) and (min-width: 641px) {
+  :root[data-layout='phone'] body:has(.landing) .dialog.dialog {
+    inset: 0; margin: auto; width: min(420px, calc(100% - 32px)); max-width: none; max-height: calc(100dvh - 32px);
+    border-radius: 24px; border-width: 1px; box-shadow: 0 30px 90px #000c;
+  }
+  :root[data-layout='phone'] body:has(.landing) .dialog.dialog[open] { animation: dialog-in .2s cubic-bezier(.2, .8, .2, 1); }
+  :root[data-layout='phone'] body:has(.landing) .dialog.dialog.dialog--closing { animation: dialog-out .18s ease-in forwards; }
+  :root[data-layout='phone'] body:has(.landing) .sheet-handle { display: none; }
+}
+/* About page, narrow window: sheets go full width (the column cap is only for the wallet) */
+@media (max-width: 640px), (pointer: coarse) {
+  :root[data-layout='phone'] body:has(.landing) .dialog.dialog { max-width: none; margin: 0; }
+}
+/* Change row under the balance blurs with it on hide/show */
+.home--mask-anim .mask-row { animation: mask-swap .12s cubic-bezier(.2, .8, .2, 1) backwards; }
+/* Networks: back link, each provider with live status (green + latency, red if down), Custom badge and host */
+.back-link { display: inline-flex; align-items: center; gap: 2px; min-height: 44px; margin: 0 0 -10px -2px; padding-right: 8px; color: var(--link); font-size: 15px; font-weight: 600; animation: rise-in .32s var(--ease-out) backwards; }
+.network-row strong { display: flex; align-items: center; gap: 8px; }
+.network-badge { padding: 2px 7px; border-radius: 999px; background: #397bff22; color: var(--link); font-size: 11px; font-weight: 650; }
+.network-status { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; transition: color .2s; }
+.network-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--quiet); transition: background .2s; }
+.network-status--ok .network-dot { background: var(--green); box-shadow: 0 0 0 3px #3ddc8422; }
+.network-status--down { color: #f09a9a; }
+.network-status--down .network-dot { background: var(--danger); box-shadow: 0 0 0 3px #ff6b6b22; }
+.network-status--checking .network-dot { animation: dot-pulse 1s ease-in-out infinite; }
+@keyframes dot-pulse { 50% { opacity: .35; } }
+.network-note { display: flex; gap: 10px; margin-top: 4px; padding: 14px 16px; border-radius: var(--radius); background: var(--card); color: var(--muted); font-size: 13px; line-height: 1.5; animation: rise-in .34s var(--ease-out) 160ms backwards; }
+.network-note svg { flex: none; margin-top: 1px; color: var(--quiet); }
+/* Unlock: shackle lifts and swings open */
+.unlocking path { transform-box: view-box; transform-origin: 17px 10px; animation: shackle-open .42s cubic-bezier(.3, 1.3, .5, 1) forwards; }
+@keyframes shackle-open { 0% { transform: none; } 45% { transform: translateY(-3px); } 100% { transform: translateY(-3px) rotate(28deg); } }
+.lock-card .field input { transition: border-color .4s ease, box-shadow .4s ease; }
+svg.unlocking { overflow: visible; }
+/* Paused-requests icon fades in/out */
+.pause-button { color: var(--muted); animation: fade-in .2s ease-out; }
+.pause-button.leaving { animation: fade-out .2s ease-out forwards; pointer-events: none; }
+.pause-button:disabled { opacity: 1; }
+/* No coins: the top card folds away and the "No coins" note shows. First add grows it back like any other add. */
+.manage-bg { transition: transform .3s cubic-bezier(.3, 1.1, .4, 1), opacity .2s; }
+.manage-list:has(> .manage-empty.shown) > .manage-bg { transform: scaleY(0); opacity: 0; }
+/* iPhone: the keyboard strip shows the root background, match the sheet while one is open */
+:root:has(dialog[open]), :root:has(dialog[open]) body { background: var(--surface); }
+/* Phones: small amounts skip the blur (a dozen blurs at once dropped frames), the big balance keeps it */
+.home--mask-anim .mask-swap:not(.mask-swap--hero), .home--mask-anim .mask-row { animation-name: mask-swap-lite; }
+@keyframes mask-swap-lite { 0% { opacity: 0; transform: translateY(-3px); } }
+
+/* Desktop wallet (mouse/trackpad): sidebar, two-column Home, centered dialogs */
+:root[data-layout='desktop'] .button.primary:hover:not(:disabled) { background: var(--blue-hover); }
+:root[data-layout='desktop'] .button.secondary:hover:not(:disabled) { background: var(--card-hover); }
+:root[data-layout='desktop'] .button.text-button:hover { color: var(--text); }
+:root[data-layout='desktop'] .round-button:hover:not(:disabled), :root[data-layout='desktop'] .icon-button:hover:not(:disabled) { background: var(--card); color: var(--text); }
+:root[data-layout='desktop'] .account:hover { background: var(--surface); }
+:root[data-layout='desktop'] .account:hover .account-edit { color: var(--muted); }
+:root[data-layout='desktop'] .tabbar a:hover { color: var(--muted); }
+:root[data-layout='desktop'] .action:hover:not(:disabled) { background: var(--card-hover); color: var(--text); }
+:root[data-layout='desktop'] .promo:hover { border-color: #397bff66; }
+:root[data-layout='desktop'] button.token:hover, :root[data-layout='desktop'] a.token:hover { background: var(--card-hover); }
+:root[data-layout='desktop'] button.row:hover, :root[data-layout='desktop'] a.row:hover { background: var(--card-hover); }
+:root[data-layout='desktop'] .choice:hover { background: var(--card-hover); }
+/* Mouse/trackpad: sidebar layout at any width (data-layout comes from main.tsx) */
+:root[data-layout='desktop'] {
+  body { background: var(--bg); }
+  .app { display: grid; grid-template-columns: 168px minmax(0, 1fr); max-width: none; border: 0; }
+  .tabbar { display: none; }
+  .sidebar {
+    position: sticky; top: 0; display: flex; flex-direction: column; gap: 28px; height: 100dvh;
+    padding: 22px 14px; background: var(--surface); border-right: 1px solid var(--stroke);
+  }
+  .sidebar-brand { padding: 4px 10px; }
+  .side-nav { display: grid; gap: 4px; }
+  .side-nav--bottom { margin-top: auto; }
+  .side-nav a { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; border-radius: 12px; color: var(--muted); font-size: 15px; font-weight: 580; transition: background .15s, color .15s; }
+  .side-nav a:hover { background: var(--card); color: var(--text); }
+  .side-nav a[aria-current='page'] { background: var(--card); color: var(--text); }
+  .side-nav a[aria-current='page'] svg { color: var(--blue); }
+  .app-header { height: 76px; padding: 0 40px; border-bottom: 1px solid var(--stroke); }
+  .app-main { width: 100%; max-width: 1120px; margin: 0 auto; padding: 32px 40px 48px; }
+  /* Pages use the full content width */
+  .page { max-width: none; }
+
+  .home { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(300px, 1fr); grid-template-areas: 'summary summary' 'tokens side' 'note side'; grid-template-rows: auto auto 1fr; align-items: start; gap: 24px; }
+  /* Balance panel: plain surface */
+  .summary { grid-area: summary; grid-template-columns: minmax(0, 1fr); align-items: center; gap: 24px; padding: 32px 36px; border-radius: 24px; background: var(--surface); border: 1px solid var(--stroke); }
+  .hero { justify-items: start; text-align: left; padding: 0; }
+  .hero-amount { font-size: clamp(56px, 5.4vw, 76px); }
+  .hero-native { justify-content: flex-start; }
+  .actions { grid-template-columns: repeat(5, minmax(0, 120px)); }
+}
+@media (min-width: 1280px) {
+:root[data-layout='desktop'] {
+  .summary { grid-template-columns: minmax(0, 1fr) auto; gap: 32px; }
+  .actions { grid-template-columns: repeat(5, 96px); }
+}
+}
+:root[data-layout='desktop'] {
+  .action { padding: 18px 4px 14px; }
+  .tokens { grid-area: tokens; }
+  .home-side { grid-area: side; }
+  .trust-note { grid-area: note; justify-content: flex-start; padding-left: 4px; }
+  .side-card { display: grid; gap: 4px; padding: 16px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--stroke); }
+  .side-card h2 { font-size: 15px; font-weight: 640; }
+  .side-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .side-card-head .text-link { font-size: 13px; }
+  .side-network { display: flex; align-items: center; gap: 10px; padding: 8px 6px; border-radius: 10px; transition: background .15s; }
+  .side-network:hover { background: var(--card); }
+  .side-network .coin { width: 32px; height: 32px; }
+  .side-network .coin svg { width: 18px; height: 18px; }
+  .side-network > span:not(.coin) { display: grid; flex: 1; line-height: 1.3; }
+  .side-network strong { font-size: 14px; font-weight: 600; }
+  .side-network small { color: var(--muted); font-size: 12px; }
+  .side-card--privacy { grid-template-columns: auto 1fr; gap: 12px; color: var(--link); }
+  .side-card--privacy p { margin-top: 4px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+  .promo { padding: 16px; }
+  .toast { bottom: 28px; left: calc(50% + 84px); }
+  .update-banner { bottom: 80px; left: calc(50% + 84px); }
+}
+/* Narrow desktop: icon-only sidebar, stacked home columns */
+@media (max-width: 675px) {
+:root[data-layout='desktop'] {
+  .app { grid-template-columns: 72px minmax(0, 1fr); }
+  .sidebar { padding: 22px 10px; align-items: center; }
+  .sidebar-brand { padding: 4px 0; }
+  .sidebar-brand .brand strong, .sidebar-brand .brand small, .side-nav a span { display: none; }
+  .side-nav a { justify-content: center; width: 48px; padding: 0; }
+  .app-header { padding: 0 16px; }
+  .app-main { padding: 20px 16px 32px; }
+  .home { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'summary' 'tokens' 'side' 'note'; }
+  .summary { padding: 24px 20px; }
+  .actions { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .toast, .update-banner { left: calc(50% + 36px); }
+}
+}
+:root[data-layout='desktop'] .emoji-tabs button:hover { opacity: .85; filter: none; }
+:root[data-layout='desktop'] .emoji-picker .emoji-grid button:hover { background: var(--card-hover); }
+:root[data-layout='desktop'] .token--manage:hover { color: var(--text); background: transparent; }
+:root[data-layout='desktop'] .chart-card:has(.chart-hit:hover) { background: var(--card); border-color: #303038; }
+:root[data-layout='desktop'] .chart-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+:root[data-layout='desktop'] .chart-card { padding: 18px 20px; }
+/* Direct children only, the full chart sheet inside keeps its own height */
+:root[data-layout='desktop'] .chart-card > :is(.sparkline, .chart-loading, .chart-empty) { height: 150px; }
+/* Full chart view */
+:root[data-layout='desktop'] .dialog:has(.chart-view) { width: min(600px, calc(100% - 32px)); }
+/* Mid-width desktop: full sidebar, Home in one column */
+@media (max-width: 999px) {
+  :root[data-layout='desktop'] .home { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'summary' 'tokens' 'side' 'note'; }
+}
+/* "by ow2" only when there's room */
+@media (max-width: 999px) { :root[data-layout='desktop'] .sidebar-brand .brand small { display: none; } }
+/* Big windows: content grows to 1440px and the header lines up with it */
+:root[data-layout='desktop'] {
+  --content-max: 1440px;
+  .app-main { max-width: var(--content-max); }
+  .app-header { padding-inline: max(40px, calc((100% - var(--content-max)) / 2 + 40px)); }
+}
+/* Narrow phones: gap between the charts title and range picker */
+.charts-page .page-title { gap: 12px; }
+@media (max-width: 420px) {
+  .charts-actions { gap: 6px; }
+  .charts-page .charts-range { grid-template-columns: repeat(4, minmax(36px, auto)); }
+  .charts-page .charts-range button { padding: 0 6px; }
+}
+/* Refresh button fades gray and back */
+.action.action--pulled { transition: transform .14s var(--ease-out), background .15s, color .15s, opacity .2s ease; }
+/* Pull arrow fades out at the bottom edge while revealing */
+.pull-refresh { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 12px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 12px), transparent); }
+/* Sheet content never wider than the sheet (a wide child pushed the close button out on desktop) */
+.dialog-content, .dialog-measure, .dialog-pane { grid-template-columns: minmax(0, 1fr); }
+:root[data-layout='desktop'] .dialog .actions.actions--sheet { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+/* Stacked Home: drop the Networks card */
+@media (max-width: 999px) { :root[data-layout='desktop'] .home-side { display: none; } }
+/* Coin popup: four actions (Scramble is a placeholder that opens a WIP sheet) */
+.dialog .actions.actions--sheet, :root[data-layout='desktop'] .dialog .actions.actions--sheet { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.scramble-target { display: flex; align-items: center; min-height: 48px; padding: 0 14px; border-radius: 14px; background: var(--card); color: var(--muted); font-size: 15px; }
+/* Home gets Scramble as a fifth tile on desktop only, phones reach it from the coin popup */
+:root[data-layout='phone'] .action--desktop { display: none; }
