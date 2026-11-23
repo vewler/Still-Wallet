@@ -46,12 +46,8 @@
 .gradient-text { background: linear-gradient(100deg, #fff 0%, #9cbcff 45%, #397bff 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .muted-text { color: #6c6c76; }
 
-/* Hero */
+/* Hero. Title never shrinks as the window grows: 100px where the single column tops out, same in two columns */
 .landing-hero { position: relative; isolation: isolate; padding-block: clamp(24px, 4vw, 64px) clamp(48px, 7vw, 100px); }
-/* Hero stays put once its bottom is on screen, the rest of the page slides up over it (--hero-top set in Landing.tsx) */
-.landing-hero { position: sticky; top: var(--hero-top, 0px); z-index: 0; }
-/* :where keeps it weaker than each section's own background; the shadow fills the sides of container-width sections */
-:where(.landing-main > :not(.landing-hero)) { position: relative; z-index: 1; background: #050505; box-shadow: 0 0 0 100vmax #050505; clip-path: inset(0 -100vmax); }
 .hero-glow {
   position: absolute; z-index: -1; inset: -20% -10% auto; height: 120%;
   background:
@@ -61,7 +57,7 @@
 @keyframes glow { to { transform: translate3d(-2%, 3%, 0) scale(1.05); } }
 .landing-hero-inner { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); align-items: start; gap: clamp(32px, 5vw, 80px); }
 .landing-copy { padding-top: clamp(0px, 3vw, 44px); animation: rise-in .7s var(--ease-out) both; }
-.landing-copy h1 { margin: 0; font-size: clamp(52px, 8.2vw, 124px); font-weight: 780; line-height: .95; letter-spacing: -.065em; }
+.landing-copy h1 { margin: 0; font-size: clamp(100px, 8.2vw, 124px); font-weight: 780; line-height: .95; letter-spacing: -.065em; }
 .landing-copy p { max-width: 40ch; margin-top: 24px; color: #b9b9c4; font-size: clamp(17px, 1.6vw, 21px); line-height: 1.55; }
 .landing-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 32px; }
 .hero-points { display: flex; flex-wrap: wrap; gap: 10px 22px; margin: 28px 0 0; padding: 0; list-style: none; color: #92929c; font-size: 14px; font-weight: 520; }
@@ -111,11 +107,18 @@
 
 /* Chains strip */
 .landing-chains { border-block: 1px solid var(--landing-line); background: #0a0a0c; }
-.chains-inner { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px 28px; padding-block: 22px; color: #6c6c76; font-size: 14px; font-weight: 600; }
-/* One row when it fits, otherwise an even 4 + 4 grid (never a lone coin on its own line) */
-.chain-logos { display: grid; grid-template-columns: repeat(4, auto); gap: 14px 28px; }
-@media (min-width: 1300px) and (pointer: fine) { .chain-logos { display: flex; gap: 14px 36px; } }
-.chain-logos span { display: inline-flex; align-items: center; gap: 10px; color: #d8d8de; font-size: 16px; font-weight: 640; }
+/* Label left, logos in aligned columns beside it; stacked and centered on narrow screens. Landing.tsx picks the column count (--cols): as many as fit, never one coin alone on the last row */
+.chains-inner { display: flex; align-items: center; justify-content: center; gap: 14px 28px; padding-block: 22px; color: #6c6c76; font-size: 14px; font-weight: 600; }
+.chains-inner > span { flex: none; }
+.chains-inner.is-stacked { flex-direction: column; text-align: center; }
+.chain-logos { display: grid; grid-template-columns: repeat(var(--cols, 4), auto); justify-items: start; gap: 14px 24px; }
+/* Full width so all 8 fit in one row as soon as they can */
+.landing-chains .chains-inner { width: calc(100% - 40px); }
+.chain-logos > span { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; color: #d8d8de; font-size: 16px; font-weight: 640; }
+@media (max-width: 859px), (pointer: coarse) {
+  .chains-inner { flex-direction: column; justify-content: center; text-align: center; }
+  .chain-logos { gap: 14px 24px; text-align: left; }
+}
 .chain-logos .coin { width: 32px; height: 32px; }
 .chain-logos .coin svg { width: 18px; height: 18px; }
 
@@ -184,10 +187,6 @@
 .is-auto-scrolling, .is-auto-scrolling body { overscroll-behavior: none; }
 .landing-footer a { transition: color .2s; }
 .reveal.is-visible { opacity: 1; translate: 0 0; }
-/* Sections that slide over the hero keep a solid background, only their content fades in */
-.landing-main > .reveal { opacity: 1; translate: none; }
-.landing-main > .reveal > * { opacity: 0; translate: 0 24px; transition: opacity .7s var(--ease-out), translate .7s var(--ease-out); }
-.landing-main > .reveal.is-visible > * { opacity: 1; translate: 0 0; }
 
 /* Touch devices get the phone layout, on PC it follows the window width */
 @media (max-width: 960px), (pointer: coarse) {
@@ -213,9 +212,8 @@
   .feature-grid { grid-template-columns: minmax(0, 1fr); }
   .feature-card, .steps li { padding: 22px; }
   .security-stats div { padding: 18px; }
-  .chains-inner { justify-content: center; text-align: center; }
-  .chain-logos { width: 100%; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px 8px; }
-  .chain-logos span { flex-direction: column; gap: 6px; font-size: 12px; white-space: nowrap; }
+  .chain-logos { gap: 12px 10px; }
+  .chain-logos > span { font-size: 14px; }
   .float-card { padding: 9px 11px; font-size: 12px; }
   .float-card--one { left: 0; top: 56%; }
   .float-card--two { right: 0; }
@@ -242,7 +240,7 @@
 @media (hover: hover) and (pointer: fine) {
   .landing-nav-link:hover, .landing-footer a:hover { color: #fff; }
   .landing .landing-button.secondary:hover { background: #ffffff14; }
-  .landing-cta .landing-button.primary:hover { background: #e8eeff; }
+  :root .landing .landing-cta .landing-button.primary:hover:not(:disabled) { background: #e8eeff; box-shadow: 0 0 0 2px #fff, 0 16px 50px #0004; }
   .landing-community:hover { color: var(--link); }
   .feature-card.is-hover, .security-stats div.is-hover, .steps li.is-hover, .float-card.is-hover { border-color: #397bff55; }
 }
@@ -284,7 +282,8 @@
 .market-stage:not(.is-visible) .market-row { opacity: 0; }
 .market-stage.is-visible .market-row { animation: fade-in .25s ease-out backwards; }
 .market-stage:not(.is-visible) .sparkline { animation: none; }
-.market-stage.is-visible .market-card .sparkline { animation: chart-draw .72s cubic-bezier(.45, 0, .2, 1) backwards; }
+/* Fast start so the line is already moving while the row fades in */
+.market-stage.is-visible .market-card .sparkline { animation: chart-draw .72s cubic-bezier(.25, .55, .25, 1) backwards; }
 /* PC: arrows lighten on hover like "Watch it in Still" */
 @media (hover: hover) and (pointer: fine) {
   .market-arrows button:hover { background: #ffffff14; }
@@ -314,14 +313,14 @@
 @container (max-width: 1007px) { .market-row { --per: 3; } }
 @container (max-width: 751px) { .market-row { --per: 2; } }
 /* Single card: 82% wide so the next one peeks in */
-@container (max-width: 495px) { .market-row { --per: 1; grid-auto-columns: 82%; } }
+@container (max-width: 495px) { .market-row { --per: 1; grid-auto-columns: 82cqw; } }
 /* Crossfade layer spans the card, after the first switch lines crossfade */
 .market-card > .crossfade { display: grid; }
 .market-card > .crossfade > * { min-width: 0; }
-/* Data attribute, not a class: React rewriting className would drop is-visible */
-.market-stage[data-swapped] .sparkline { animation: none; }
 /* Row runs to the window edges so cards slide in/out there. At rest the first card lines up with the text (padding + scroll-padding). */
 .market-row { margin-inline: calc(50cqw - 50vw); padding-inline: calc(50vw - 50cqw); scroll-padding-inline: calc(50vw - 50cqw); }
+/* Single card: room after the last one so it stops in the same spot as every other card (#3) */
+@container (max-width: 495px) { .market-row { padding-inline-end: calc(50vw - 50cqw + 18cqw); } }
 /* Fixed heights per card part so crossfading layers never resize the card for a frame */
 .market-card header { height: 44px; }
 .market-card header > .crossfade { width: 36px; height: 36px; place-items: center; }
@@ -334,3 +333,7 @@
 .market-range { margin-left: 4px; padding: 1px 5px; border-radius: 5px; background: #ffffff0f; color: #8a8a94; font-size: 10.5px; font-weight: 650; letter-spacing: .02em; vertical-align: 1px; }
 .policy .credits-page-list { padding: 0; gap: 0; }
 .landing-build { margin-left: 6px; color: #55555e; font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* 404 */
+.not-found { display: grid; align-content: center; justify-items: start; gap: 18px; min-height: 60dvh; }
+.not-found p { margin: 0; }

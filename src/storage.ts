@@ -73,7 +73,12 @@ export function savePreferences(value: Preferences) {
 const activity = new Map<string, { key: CryptoKey; items: ActivityItem[] }>()
 let writes: Promise<void> = Promise.resolve()
 let lastWrite: Promise<void> = Promise.resolve()
-const toBase64 = (data: Uint8Array) => btoa(String.fromCharCode(...data))
+// In chunks: Safari caps call arguments at 65536 and a long history is bigger.
+function toBase64(data: Uint8Array) {
+  let text = ''
+  for (let start = 0; start < data.length; start += 0x8000) text += String.fromCharCode(...data.subarray(start, start + 0x8000))
+  return btoa(text)
+}
 const fromBase64 = (data: string) => Uint8Array.from(atob(data), (character) => character.charCodeAt(0))
 const activityData = (walletId: string) => new TextEncoder().encode(`still/activity/1/${walletId}`)
 

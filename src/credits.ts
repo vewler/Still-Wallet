@@ -1,14 +1,14 @@
 /** Credits, shown in the wallet and on the about page. */
 export const team = [
   ['vewler', 'Main developer'],
-  ['Laython J', 'Tester'],
+  ['Layton J', 'Tester'],
 ] as const
 
 export const supporters = [
   ['Michelangelo P', 'Donor'],
 ] as const
 
-/** Open source deps, shown in Settings > Credits and on the welcome page. */
+/** Open source deps, shown in Settings > Credits and on the landing page. */
 export const credits = [
   ['React', 'MIT', 'Interface'],
   ['Vite', 'MIT', 'Build tooling'],

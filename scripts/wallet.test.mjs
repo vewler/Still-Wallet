@@ -357,6 +357,11 @@ test('stores activity encrypted and moves old plain history into the encrypted f
   forgetActivity()
   assert.deepEqual(readActivity('w'), [])
   assert.deepEqual((await loadActivity('w', source.activityKey)).map((entry) => entry.hash), ['def', 'abc'])
+  // A full history is far past the argument limit of one fromCharCode call.
+  for (let index = 0; index < 200; index++) saveActivity('w', { ...item, hash: `${index}`.padEnd(900, 'x'), created: 3 + index })
+  await activitySaved()
+  forgetActivity()
+  assert.equal((await loadActivity('w', source.activityKey)).length, 200)
   const stranger = await accountSession({ vault: 'other', mnemonic: newPhrase() }, 0)
   assert.deepEqual(await loadActivity('w', stranger.activityKey), [])
 })

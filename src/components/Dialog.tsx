@@ -84,8 +84,8 @@ export function Dialog({ title, close, busy = false, step, back = false, childre
     const state = drag.current
     if (!state) return
     const raw = event.clientY - state.y
-    // Rubber-band when pulled up.
-    const dy = raw > 0 ? raw : raw / 6
+    // Pulled up: stiff rubber band, tops out around 20px.
+    const dy = raw > 0 ? raw : -10 * Math.log1p(-raw / 40)
     state.v = (dy - state.dy) / Math.max(1, event.timeStamp - state.time)
     state.dy = dy
     state.time = event.timeStamp

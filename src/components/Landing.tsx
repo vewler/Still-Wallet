@@ -54,17 +54,33 @@ export function Landing({ mode, mainRef, openWallet }: LandingProps) {
     })
   }
 
-  // Sticky hero: pin it where its bottom meets the screen bottom (or under the header if it fits).
+  // Works with: as many aligned columns as fit beside/below the label, but never one coin alone on the last row.
   useEffect(() => {
-    const hero = root.current?.querySelector<HTMLElement>('.landing-hero')
-    const header = root.current?.querySelector<HTMLElement>('.landing-header')
-    if (!hero || !header) return
-    const place = () => hero.style.setProperty('--hero-top', `${Math.min(header.offsetHeight, window.innerHeight - hero.offsetHeight)}px`)
-    place()
-    const observer = new ResizeObserver(place)
-    observer.observe(hero)
-    window.addEventListener('resize', place)
-    return () => { observer.disconnect(); window.removeEventListener('resize', place) }
+    const inner = root.current?.querySelector<HTMLElement>('.chains-inner')
+    const grid = inner?.querySelector<HTMLElement>('.chain-logos')
+    if (!inner || !grid) return
+    const narrow = matchMedia('(max-width: 859px), (pointer: coarse)')
+    const fit = () => {
+      const items = [...grid.children] as HTMLElement[]
+      const label = inner.firstElementChild as HTMLElement
+      const full = inner.clientWidth
+      const beside = full - label.offsetWidth - parseFloat(getComputedStyle(inner).columnGap)
+      const gap = parseFloat(getComputedStyle(grid).columnGap)
+      const width = (cols: number) => Array.from({ length: cols }, (_, column) => Math.max(...items.filter((_, index) => index % cols === column).map((item) => item.offsetWidth))).reduce((sum, value) => sum + value, 0) + gap * (cols - 1)
+      // One row beside the label, else one row under the label, else wrap.
+      const stacked = narrow.matches || width(items.length) > beside
+      inner.classList.toggle('is-stacked', stacked && !narrow.matches)
+      const space = narrow.matches || width(items.length) <= full ? full : beside
+      let cols = items.length
+      while (cols > 2 && (width(cols) > space || items.length % cols === 1)) cols--
+      if (cols < items.length && !narrow.matches) inner.classList.remove('is-stacked')
+      grid.style.setProperty('--cols', String(cols))
+    }
+    fit()
+    void document.fonts.ready.then(fit)
+    const observer = new ResizeObserver(fit)
+    observer.observe(inner)
+    return () => observer.disconnect()
   }, [])
 
   // Track hover manually while the page scrolls under a still mouse (:hover only updates after scrolling stops).
@@ -128,7 +144,7 @@ export function Landing({ mode, mainRef, openWallet }: LandingProps) {
   return <div className="landing" ref={root}>
     <header className={`landing-header${scrolled ? ' is-scrolled' : ''}`}>
       <div className="landing-container landing-header-inner">
-        <a className="landing-brand" href="#welcome" aria-label="Still home" onClick={(event) => { if (['/', '/welcome', '/about'].includes(location.pathname)) { event.preventDefault(); navTarget.current = null; smoothScrollTo(0) } }}><Brand attribution /></a>
+        <a className="landing-brand" href="/" aria-label="Still home" onClick={(event) => { if (['/', '/about'].includes(location.pathname)) { event.preventDefault(); navTarget.current = null; smoothScrollTo(0) } }}><Brand attribution /></a>
         <nav aria-label="Site" className="landing-nav">
           <a className="landing-nav-link" aria-current={active === 'features' ? 'true' : undefined} href="#features" onClick={scrollToSection('features')}>Features</a>
           <a className="landing-nav-link" aria-current={active === 'security-section' ? 'true' : undefined} href="#security-section" onClick={scrollToSection('security-section')}>Security</a>
@@ -291,13 +307,11 @@ const stable = new Set(['usd-coin', 'tether', 'dai'])
 function MarketSection({ action, openWallet }: { action: string; openWallet: () => void }) {
   const [coins, setCoins] = useState<MarketCoin[]>()
   const [tab, setTab] = useState<'top' | 'movers'>('top')
-  // Draw-in only on the first reveal, after that lines crossfade.
-  const [swapped, setSwapped] = useState(false)
   const stage = useRef<HTMLDivElement>(null)
   const glide = useRef(0)
-  const gliding = useRef(false)
-  const progress = useRef(0)
-  const queued = useRef(0)
+  // Card index the arrows are heading to, null when the row is at rest.
+  const target = useRef<number | null>(null)
+  const fading = useRef<Animation>(undefined)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -323,46 +337,48 @@ function MarketSection({ action, openWallet }: { action: string; openWallet: () 
 
   const list = (coins ?? []).filter((coin) => tab === 'top' || !stable.has(coin.id))
     .sort((a, b) => tab === 'top' ? a.rank - b.rank : Math.abs(b.change) - Math.abs(a.change))
-  // Visible row = newest one in the crossfade.
+  // Tab switch: the row fades out, then the new tab's row (keyed by tab) fades in from the start with every line drawing at once.
+  const switchTab = (next: 'top' | 'movers') => {
+    const row = stage.current?.querySelector<HTMLElement>('.market-row')
+    if (next === tab || !row || fading.current) return
+    cancelAnimationFrame(glide.current)
+    target.current = null
+    fading.current = row.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, easing: 'ease-out', fill: 'forwards' })
+    fading.current.finished.then(() => { fading.current = undefined; setTab(next) }, () => { fading.current = undefined })
+  }
+  // Arrows: a press while gliding retargets from where the row is headed, so fast clicks keep moving without snapping back.
   const scroll = (direction: number) => {
-    const rows = stage.current?.querySelectorAll<HTMLElement>('.market-row')
-    const row = rows?.[rows.length - 1]
+    const row = stage.current?.querySelector<HTMLElement>('.market-row')
     const cards = row ? [...row.querySelectorAll<HTMLElement>('.market-card')] : []
-    if (!row || cards.length < 2) return
-    // From 65% of a slide on, buffer one press and play it right after. Earlier presses are ignored.
-    if (gliding.current) { if (progress.current >= .65 && !queued.current) queued.current = direction; return }
+    if (!row || cards.length < 2 || fading.current) return
     // Exact snap positions so turning snapping back on never shifts a pixel.
     const base = row.getBoundingClientRect().left + parseFloat(getComputedStyle(row).scrollPaddingLeft) - row.scrollLeft
-    const stops = cards.map((card) => card.getBoundingClientRect().left - base)
     const max = row.scrollWidth - row.clientWidth
-    const current = row.scrollLeft
-    const index = stops.reduce((best, stop, at) => Math.abs(stop - current) < Math.abs(stops[best] - current) ? at : best, 0)
-    const to = Math.max(0, Math.min(max, stops[Math.max(0, Math.min(stops.length - 1, index + direction))]))
+    const stops = cards.map((card) => Math.max(0, Math.min(max, card.getBoundingClientRect().left - base)))
     const from = row.scrollLeft
-    // At the end: nudge and spring back.
-    if (Math.abs(to - from) < 1) {
+    const index = target.current ?? stops.reduce((best, stop, at) => Math.abs(stop - from) < Math.abs(stops[best] - from) ? at : best, 0)
+    // Past the end every stop is clamped to max: step to the next distinct one.
+    let next = index
+    while (next + direction >= 0 && next + direction < stops.length && Math.abs(stops[next + direction] - stops[index]) < 1) next += direction
+    next = Math.max(0, Math.min(stops.length - 1, next + direction))
+    const to = stops[next]
+    if (Math.abs(to - stops[index]) < 1) {
+      // At the end: nudge and spring back (only once the row is at rest).
+      if (target.current !== null) return
       const push = direction * 12
       row.animate([{ transform: 'none' }, { transform: `translateX(${-push}px)` }, { transform: `translateX(${push * .4}px)` }, { transform: `translateX(${-push * .15}px)` }, { transform: 'none' }], { duration: 320, easing: 'ease-out' })
       return
     }
+    target.current = next
     cancelAnimationFrame(glide.current)
     row.style.scrollSnapType = 'none'
-    gliding.current = true
-    progress.current = 0
     const start = performance.now()
     const tick = (now: number) => {
       const t = Math.min(1, (now - start) / 360)
-      progress.current = t
       // Ease-out, no overshoot.
       row.scrollLeft = from + (to - from) * (1 - (1 - t) ** 5)
       if (t < 1) glide.current = requestAnimationFrame(tick)
-      else {
-        row.style.scrollSnapType = ''
-        gliding.current = false
-        const next = queued.current
-        queued.current = 0
-        if (next) scroll(next)
-      }
+      else { row.style.scrollSnapType = ''; target.current = null }
     }
     glide.current = requestAnimationFrame(tick)
   }
@@ -377,15 +393,15 @@ function MarketSection({ action, openWallet }: { action: string; openWallet: () 
     <div className="market-bar reveal">
       <div className="market-tabs" role="group" aria-label="Sort tokens" style={{ '--i': tab === 'top' ? 0 : 1 } as CSSProperties}>
         <span aria-hidden="true" />
-        <button type="button" aria-pressed={tab === 'top'} onClick={() => { setTab('top'); setSwapped(true) }}>Top tokens</button>
-        <button type="button" aria-pressed={tab === 'movers'} onClick={() => { setTab('movers'); setSwapped(true) }}>Top movers</button>
+        <button type="button" aria-pressed={tab === 'top'} onClick={() => switchTab('top')}>Top tokens</button>
+        <button type="button" aria-pressed={tab === 'movers'} onClick={() => switchTab('movers')}>Top movers</button>
       </div>
       <div className="market-arrows">
         <button type="button" aria-label="Scroll back" onClick={() => scroll(-1)}><ArrowLeft size={18} /></button>
         <button type="button" aria-label="Scroll forward" onClick={() => scroll(1)}><ArrowRight size={18} /></button>
       </div>
     </div>
-    <div ref={stage} className="market-stage reveal" data-swapped={swapped || undefined}><div className="market-row" role="list">
+    <div ref={stage} className="market-stage reveal"><div key={tab} className="market-row" role="list">
       {coins === undefined ? Array.from({ length: 4 }, (_, index) => <div key={index} className="market-card market-card--loading" role="listitem" />)
         : list.length === 0 ? <p className="market-empty">Prices are unavailable right now.</p>
         : list.map((coin, index) => {
@@ -394,7 +410,6 @@ function MarketSection({ action, openWallet }: { action: string; openWallet: () 
           const up = coin.change >= 0
           const priceText = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: coin.price < 1 ? 4 : 2 }).format(coin.price)
           const changeText = `${up ? '+' : '−'}${Math.abs(coin.change).toFixed(2)}%`
-          // Card stays put; icon, name and ticker crossfade like the line, price and %.
           return <article key={index} className="market-card hover-card" role="listitem">
             <header><CrossFade id={coin.id} ms={250}>{network ? <Coin chain={network.chain} /> : token ? <TokenIcon token={token} /> : null}</CrossFade><span><strong><CrossFade id={coin.name} ms={250}>{coin.name}</CrossFade></strong><small><CrossFade id={coin.symbol} ms={250}>{coin.symbol}</CrossFade></small></span></header>
             <CrossFade id={coin.id} ms={250}><MorphLine points={coin.points} up={up} label={`${coin.name} price over 7 days`} /></CrossFade>

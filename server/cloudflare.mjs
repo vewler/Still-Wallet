@@ -48,6 +48,7 @@ export default {
       if (url.pathname === '/sw.js') return new Response(retireWorker, { headers: { 'content-type': 'application/javascript', 'cache-control': 'no-store' } })
       return Response.redirect(home + url.pathname + url.search, 301)
     }
+    if (url.protocol === 'http:') return Response.redirect(home + url.pathname + url.search, 301)
     if (!workerPath.test(url.pathname)) return env.ASSETS.fetch(request)
     if (isMoneroPath(url.pathname)) return moneroProxy(request, monero)
     return node.fetch(request, env, context)

@@ -9,6 +9,7 @@ import { ManageCoins } from './Manage'
 
 const ranges = [['1', '24h'], ['7', '7d'], ['30', '30d'], ['365', '1y']] as const
 type Days = typeof ranges[number][0]
+const DAYS_KEY = 'still.charts.days'
 type History = { points: number[]; first: number; last: number }
 
 // Phone and desktop keep separate chart lists.
@@ -121,7 +122,8 @@ export async function prefetchCharts(environment: Preferences['environment'], cu
 }
 
 export function ChartsPage({ preferences }: { preferences: Preferences }) {
-  const [days, setDays] = useState<Days>('7')
+  const [days, setDaysState] = useState<Days>(() => { const saved = localStorage.getItem(DAYS_KEY); return ranges.some(([value]) => value === saved) ? saved as Days : '7' })
+  const setDays = (value: Days) => { setDaysState(value); try { localStorage.setItem(DAYS_KEY, value) } catch { /* Keep it for this visit. */ } }
   const [layout, setLayout] = useState(readLayout)
   const [managing, setManaging] = useState(false)
   const shown = shownCharts(preferences.environment, layout)

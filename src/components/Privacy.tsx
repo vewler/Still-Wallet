@@ -12,7 +12,7 @@ export function PrivacyPolicy({ mainRef, back }: { mainRef: Ref<HTMLElement>; ba
   return <div className="landing">
     <header className="landing-header">
       <div className="landing-container landing-header-inner">
-        <a className="landing-brand" href="#welcome" aria-label="Still home"><Brand attribution /></a>
+        <a className="landing-brand" href="/" aria-label="Still home"><Brand attribution /></a>
         <a className="button secondary landing-button" href={back}><ArrowLeft size={16} /> Back</a>
       </div>
     </header>
@@ -73,7 +73,7 @@ export function CreditsPage({ mainRef, back }: { mainRef: Ref<HTMLElement>; back
   return <div className="landing">
     <header className="landing-header">
       <div className="landing-container landing-header-inner">
-        <a className="landing-brand" href="#welcome" aria-label="Still home"><Brand attribution /></a>
+        <a className="landing-brand" href="/" aria-label="Still home"><Brand attribution /></a>
         <a className="button secondary landing-button" href={back}><ArrowLeft size={16} /> Back</a>
       </div>
     </header>
@@ -126,7 +126,7 @@ export function FaqPage({ mainRef, back }: { mainRef: Ref<HTMLElement>; back: st
   return <div className="landing">
     <header className="landing-header">
       <div className="landing-container landing-header-inner">
-        <a className="landing-brand" href="#welcome" aria-label="Still home"><Brand attribution /></a>
+        <a className="landing-brand" href="/" aria-label="Still home"><Brand attribution /></a>
         <a className="button secondary landing-button" href={back}><ArrowLeft size={16} /> Back</a>
       </div>
     </header>
@@ -140,6 +140,29 @@ export function FaqPage({ mainRef, back }: { mainRef: Ref<HTMLElement>; back: st
         </li>)}
       </ul>
       <p>Still stuck? DM <strong>@vewler</strong> on Discord.</p>
+    </main>
+
+    <footer className="landing-footer landing-container">
+      <span><strong>Still</strong> by ow2</span>
+      <a href="/LICENSE.txt" target="_blank" rel="noreferrer">MIT License</a>
+    </footer>
+  </div>
+}
+
+/** Unknown paths, and wallet pages opened with no wallet on this device. */
+export function ErrorPage({ mainRef, kind }: { mainRef: Ref<HTMLElement>; kind: 'missing' | 'denied' }) {
+  const [title, text] = kind === 'missing' ? ['Page not found', 'This page doesn’t exist or has moved.'] : ['No access', 'You can’t open this without a wallet on this device. Create or import one first.']
+  return <div className="landing">
+    <header className="landing-header">
+      <div className="landing-container landing-header-inner">
+        <a className="landing-brand" href="/" aria-label="Still home"><Brand attribution /></a>
+      </div>
+    </header>
+
+    <main id="main-content" ref={mainRef} tabIndex={-1} className="landing-main landing-container policy not-found">
+      <h1>{title}</h1>
+      <p>{text}</p>
+      <a className="button primary landing-button landing-button--big" href="/"><ArrowLeft size={18} /> Back to Still</a>
     </main>
 
     <footer className="landing-footer landing-container">

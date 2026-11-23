@@ -32,7 +32,7 @@ body { margin: 0; min-height: 100dvh; background: var(--bg); }
 html, body, dialog, dialog * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 input, textarea, [contenteditable], .mono, dialog :is(input, textarea, [contenteditable], .mono) { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
 button, input, textarea, select { font: inherit; color: inherit; min-width: 0; }
-button, a, input, textarea, select { -webkit-tap-highlight-color: transparent; }
+* { -webkit-tap-highlight-color: transparent; }
 button, a { touch-action: manipulation; }
 button { cursor: pointer; background: none; border: 0; padding: 0; }
 button:disabled { cursor: default; opacity: .4; }
@@ -473,7 +473,14 @@ fieldset.form { min-width: 0; margin: 0; padding: 0; border: 0; }
 .button { transition: background .15s, transform .14s var(--ease-out), border-color .15s, opacity .2s, box-shadow .2s; }
 .button svg { transition: transform .2s var(--ease-out); }
 .setup-done { display: grid; justify-items: center; gap: 8px; padding: 18px 0 10px; text-align: center; }
-.setup-done-check { display: grid; place-items: center; width: 76px; height: 76px; margin-bottom: 8px; border-radius: 50%; background: var(--green); color: #04140b; animation: check-pop .5s var(--ease-out) backwards, ring 1s ease-out .3s; }
+.setup-done-check { position: relative; display: grid; place-items: center; width: 76px; height: 76px; margin-bottom: 8px; border-radius: 50%; background: var(--green); color: #04140b; animation: done-pop .55s cubic-bezier(.34, 1.56, .64, 1) backwards; }
+/* Success: circle springs in, two rings ripple out, then the check draws itself */
+.setup-done-check::before, .setup-done-check::after { content: ''; position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--green); opacity: 0; animation: done-ring .9s cubic-bezier(.2, .8, .2, 1) .2s; }
+.setup-done-check::after { animation-delay: .38s; }
+.setup-done-check path { stroke-dasharray: 1; stroke-dashoffset: 1; animation: done-draw .38s cubic-bezier(.65, 0, .35, 1) .3s forwards; }
+@keyframes done-pop { 0% { opacity: 0; transform: scale(0); } 60% { opacity: 1; } 100% { transform: scale(1); } }
+@keyframes done-ring { 0% { opacity: .7; transform: scale(1); } 100% { opacity: 0; transform: scale(1.7); } }
+@keyframes done-draw { to { stroke-dashoffset: 0; } }
 .setup-done strong { font-size: 20px; font-weight: 700; animation: rise-in .35s var(--ease-out) .15s backwards; }
 .setup-done p { color: var(--muted); font-size: 14px; animation: rise-in .35s var(--ease-out) .22s backwards; }
 .qr-wrap img { animation: pop-in .35s var(--ease-out) backwards; }
@@ -722,18 +729,33 @@ button.text-link { padding: 0; }
 @keyframes tap-scan { 0% { transform: scale(1); } 35% { transform: scale(.78); opacity: .6; } 70% { transform: scale(1.14); opacity: 1; } 100% { transform: scale(1); } }
 @keyframes tap-send { 0% { transform: none; } 40% { transform: translateY(-14px); opacity: 0; } 41% { transform: translateY(12px); opacity: 0; } 100% { transform: none; opacity: 1; } }
 @keyframes tap-swap { 0% { transform: none; } 40% { transform: translateX(14px); opacity: 0; } 41% { transform: translateX(-12px); opacity: 0; } 100% { transform: none; opacity: 1; } }
-/* Scramble cube: one hop with a full turn, lands the way it started */
-.action svg.tap.lucide-box { animation: tap-roll .62s var(--ease-out), tap-hop .62s; }
-@keyframes tap-roll { to { rotate: 360deg; } }
-@keyframes tap-hop { 0%, 100% { translate: 0 0; animation-timing-function: ease-out; } 50% { translate: 0 -3px; animation-timing-function: ease-in; } }
+/* Scramble cube: squats, hops and tumbles one face (120deg looks identical), squashes on landing. Same length as the other tiles. */
+.action svg.tap.lucide-box { animation: tap-cube .62s; }
+@keyframes tap-cube {
+  0% { translate: 0 0; rotate: 0deg; scale: 1; animation-timing-function: ease-out; }
+  16% { translate: 0 1px; rotate: 0deg; scale: 1.1 .86; animation-timing-function: cubic-bezier(.2, .7, .4, 1); }
+  52% { translate: 0 -6px; rotate: 96deg; scale: .96 1.06; animation-timing-function: cubic-bezier(.6, 0, .9, .5); }
+  74% { translate: 0 0; rotate: 120deg; scale: 1.08 .9; animation-timing-function: var(--ease-out); }
+  100% { translate: 0 0; rotate: 120deg; scale: 1; }
+}
 @keyframes tap-hold { to { opacity: 1; } }
-/* Manage button: the three slider knobs glide to new spots and settle back */
-svg.tap.lucide-sliders-horizontal { animation: tap-hold .7s linear; }
-svg.tap.lucide-sliders-horizontal path:nth-child(3) { animation: knob-left .62s var(--ease-out); }
-svg.tap.lucide-sliders-horizontal path:nth-child(8) { animation: knob-right .62s var(--ease-out) 50ms; }
-svg.tap.lucide-sliders-horizontal path:nth-child(4) { animation: knob-left .62s var(--ease-out) 100ms; }
-@keyframes knob-left { 45% { transform: translateX(-6px); } }
-@keyframes knob-right { 45% { transform: translateX(7px); } }
+/* Manage button: each knob slides along its line and the line's two halves stretch with it, then everything settles back.
+   Paths: 1/3/7 top row (left, knob, right), 9/8/5 middle, 2/4/6 bottom. Halves scale from their outer end (x 3 or 21). */
+svg.tap.lucide-sliders-horizontal { animation: tap-hold .74s linear; }
+svg.tap.lucide-sliders-horizontal path { transform-box: view-box; animation: slide-knob .62s var(--ease-out) var(--d, 0ms); }
+svg.tap.lucide-sliders-horizontal :is(path:nth-child(1), path:nth-child(2), path:nth-child(9)) { transform-origin: 3px 0; animation-name: slide-line; }
+svg.tap.lucide-sliders-horizontal :is(path:nth-child(5), path:nth-child(6), path:nth-child(7)) { transform-origin: 21px 0; animation-name: slide-line; }
+svg.tap.lucide-sliders-horizontal path:nth-child(1) { --s: .29; }
+svg.tap.lucide-sliders-horizontal path:nth-child(3) { --x: -5px; }
+svg.tap.lucide-sliders-horizontal path:nth-child(7) { --s: 1.71; }
+svg.tap.lucide-sliders-horizontal path:nth-child(9) { --s: 2.4; --d: 50ms; }
+svg.tap.lucide-sliders-horizontal path:nth-child(8) { --x: 7px; --d: 50ms; }
+svg.tap.lucide-sliders-horizontal path:nth-child(5) { --s: .22; --d: 50ms; }
+svg.tap.lucide-sliders-horizontal path:nth-child(2) { --s: .33; --d: 100ms; }
+svg.tap.lucide-sliders-horizontal path:nth-child(4) { --x: -6px; --d: 100ms; }
+svg.tap.lucide-sliders-horizontal path:nth-child(6) { --s: 2.2; --d: 100ms; }
+@keyframes slide-knob { 45% { transform: translateX(var(--x, 0)); } }
+@keyframes slide-line { 45% { transform: scaleX(var(--s, 1)); } }
 /* Soft fade just outside the icon edge */
 .action span { padding: 10px; margin: -10px; overflow: hidden; -webkit-mask-image: radial-gradient(closest-side, #000 72%, transparent); mask-image: radial-gradient(closest-side, #000 72%, transparent); }
 /* Pull to refresh: gap follows the finger then eases shut, native pull UI off */
@@ -990,3 +1012,16 @@ svg.unlocking { overflow: visible; }
 .scramble-target { display: flex; align-items: center; min-height: 48px; padding: 0 14px; border-radius: 14px; background: var(--card); color: var(--muted); font-size: 15px; }
 /* Home gets Scramble as a fifth tile on desktop only, phones reach it from the coin popup */
 :root[data-layout='phone'] .action--desktop { display: none; }
+
+/* Touch: controls shorter than 44px get an invisible taller hit area, the look stays the same. */
+@media (pointer: coarse) {
+  .landing .landing-button, .market-tabs button, .charts-range button, .landing-footer a { position: relative; }
+  .landing .landing-button::after, .market-tabs button::after, .charts-range button::after, .landing-footer a::after { content: ''; position: absolute; inset: -6px 0; }
+  .landing-footer a::after { inset: -14px -8px; }
+}
+
+/* Phone sheets: handle, title and X stay put, only the body scrolls (and bounces) under them */
+:root[data-layout='phone'] .dialog[open] { display: flex; flex-direction: column; overflow: hidden; }
+:root[data-layout='phone'] .dialog-content { display: flex; flex-direction: column; min-height: 0; }
+:root[data-layout='phone'] .sheet-grab { flex: none; }
+:root[data-layout='phone'] .dialog-size { flex: 0 1 auto; min-height: 0; overflow: hidden auto; overscroll-behavior: contain; }

@@ -81,7 +81,7 @@ export function Access({ locked, intent, close, onSession }: {
 
   return <Dialog title={titles[step]} close={close} busy={busy || step === 'done'} back={back}>
     {step === 'done' && <div className="setup-done">
-      <span className="setup-done-check"><Check size={34} strokeWidth={2.6} /></span>
+      <span className="setup-done-check" aria-hidden="true"><svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" pathLength="1" /></svg></span>
       <strong>You’re all set</strong>
       <p>Your wallet is encrypted on this device.</p>
     </div>}

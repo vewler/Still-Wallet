@@ -13,7 +13,7 @@ import { Landing, discord } from './components/Landing'
 import { credits, supporters, team } from './credits'
 import { ManageCoins } from './components/Manage'
 import { smoothScrollTo } from './scroll'
-import { CreditsPage, FaqPage, PrivacyPolicy } from './components/Privacy'
+import { CreditsPage, ErrorPage, FaqPage, PrivacyPolicy } from './components/Privacy'
 import { Dialog, ErrorSlot, Notice, PasswordInput } from './components/Dialog'
 import { useWallet } from './useWallet'
 import { PullRefresh } from './components/PullRefresh'
@@ -31,7 +31,7 @@ const navigation = [
 ] as const
 const tabs: string[] = navigation.filter(({ id }) => id !== 'networks').map(({ id }) => id)
 
-type Route = typeof navigation[number]['id'] | 'home' | 'welcome' | 'about' | 'privacy' | 'credits' | 'faq'
+type Route = typeof navigation[number]['id'] | 'home' | 'about' | 'privacy' | 'credits' | 'faq' | 'notfound'
 const sheetKeys = new WeakMap<object, number>()
 let sheetCount = 0
 const sheetKey = (modal: object) => { if (!sheetKeys.has(modal)) sheetKeys.set(modal, ++sheetCount); return sheetKeys.get(modal)! }
@@ -47,12 +47,31 @@ type Modal =
 
 
 // Clean paths (/activity). Old #links get rewritten on load.
-const pages = ['about', 'welcome', 'privacy', 'credits', 'faq']
+const pages = ['about', 'privacy', 'credits', 'faq']
 const isRoute = (name: string) => pages.includes(name) || navigation.some(({ id }) => id === name)
 function currentRoute(): Route {
   const name = location.pathname.slice(1)
-  if (name === 'about' || name === 'welcome' || name === 'privacy' || name === 'credits' || name === 'faq') return name
-  return navigation.find(({ id }) => id === name)?.id ?? 'home'
+  if (name === 'about' || name === 'privacy' || name === 'credits' || name === 'faq') return name
+  return navigation.find(({ id }) => id === name)?.id ?? (name === '' || name === 'index.html' ? 'home' : 'notfound')
+}
+// Per-page title, description and canonical for search. Home keeps what index.html ships.
+const homeMeta = { title: document.title, description: document.querySelector('meta[name="description"]')?.getAttribute('content') ?? '' }
+const pageMeta: Partial<Record<Route, { title: string; description: string; path: string }>> = {
+  home: { ...homeMeta, path: '/' },
+  about: { ...homeMeta, path: '/' },
+  privacy: { title: 'Privacy Policy · Still Wallet', description: 'Still Wallet has no sign-up, analytics or trackers. Your wallet data stays on your device.', path: '/privacy' },
+  credits: { title: 'Credits · Still Wallet', description: 'The people and open-source projects behind Still Wallet.', path: '/credits' },
+  faq: { title: 'FAQ · Still Wallet', description: 'Answers to common questions about Still Wallet, a self-custody crypto wallet.', path: '/faq' },
+}
+function applyMeta(route: Route) {
+  const meta = pageMeta[route]
+  document.title = meta?.title ?? homeMeta.title
+  document.querySelector('meta[name="description"]')?.setAttribute('content', meta?.description ?? homeMeta.description)
+  document.querySelector('link[rel="canonical"]')?.setAttribute('href', `https://stillwallet.net${meta?.path ?? '/'}`)
+  // Wallet screens are not for search results.
+  let robots = document.querySelector<HTMLMetaElement>('meta[name="robots"]')
+  if (meta) robots?.remove()
+  else if (!robots) { robots = document.createElement('meta'); robots.name = 'robots'; robots.content = 'noindex'; document.head.append(robots) }
 }
 function adoptHash() {
   const name = location.hash.slice(1)
@@ -121,7 +140,8 @@ export default function App() {
     const timer = window.setTimeout(() => setPauseIcon(false), 200)
     return () => window.clearTimeout(timer)
   }, [preferences.offline])
-  const landing = route === 'welcome' || route === 'about' || (route === 'home' && mode === 'none')
+  const landing = route === 'about' || (route === 'home' && mode === 'none')
+  useEffect(() => applyMeta(route), [route])
   const page = route === 'home' ? 'overview' : route
 
   useEffect(() => {
@@ -135,7 +155,8 @@ export default function App() {
     // In-app #links become path changes.
     const onClick = (event: MouseEvent) => {
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-      const name = (event.target as Element).closest?.('a[href^="#"]')?.getAttribute('href')?.slice(1) ?? ''
+      const href = (event.target as Element).closest?.('a[href^="#"], a[href="/"]')?.getAttribute('href') ?? ''
+      const name = href === '/' ? 'overview' : href.slice(1)
       if (!isRoute(name)) return
       event.preventDefault()
       go(name)
@@ -160,10 +181,10 @@ export default function App() {
 
   // Back from Privacy/Credits/FAQ restores the scroll position.
   const scrolls = useRef(new Map<string, number>())
-  // /, #welcome and #about share one saved position.
+  // / and #about share one saved position.
   const modeNow = useRef(mode)
   modeNow.current = mode
-  const scrollKey = (value: Route) => value === 'welcome' || value === 'about' || (value === 'home' && modeNow.current === 'none') ? 'landing' : value
+  const scrollKey = (value: Route) => value === 'about' || (value === 'home' && modeNow.current === 'none') ? 'landing' : value
   const shownRoute = useRef(route)
   const restored = useRef(false)
   useLayoutEffect(() => {
@@ -259,7 +280,7 @@ export default function App() {
 
   return <div className="shell">
     <a href="#main-content" className="skip-link" onClick={(event) => { event.preventDefault(); content.current?.focus() }}>Skip to content</a>
-    {route === 'privacy' ? <PrivacyPolicy mainRef={content} back={mode === 'wallet' ? '#settings' : '#welcome'} /> : route === 'credits' ? <CreditsPage mainRef={content} back={mode === 'wallet' ? '#settings' : '#welcome'} /> : route === 'faq' ? <FaqPage mainRef={content} back={mode === 'wallet' ? '#settings' : '#welcome'} /> : mode === 'locked' ? <LockScreen mainRef={content} protect={preferences.protect} onSession={start} removed={(message) => { wallet.removed(); notify(message) }} /> : landing ? <Landing mode={mode} mainRef={content} openWallet={openWallet} /> : <div className="app">
+    {route === 'notfound' ? <ErrorPage mainRef={content} kind="missing" /> : mode === 'none' && route !== 'home' && !landing && !pages.includes(route) ? <ErrorPage mainRef={content} kind="denied" /> : route === 'privacy' ? <PrivacyPolicy mainRef={content} back={mode === 'wallet' ? '#settings' : '/'} /> : route === 'credits' ? <CreditsPage mainRef={content} back={mode === 'wallet' ? '#settings' : '/'} /> : route === 'faq' ? <FaqPage mainRef={content} back={mode === 'wallet' ? '#settings' : '/'} /> : mode === 'locked' ? <LockScreen mainRef={content} protect={preferences.protect} onSession={start} removed={(message) => { wallet.removed(); notify(message) }} /> : landing ? <Landing mode={mode} mainRef={content} openWallet={openWallet} /> : <div className="app">
       <aside className="sidebar">
         <a href="#overview" className="sidebar-brand" aria-label="Still home"><Brand attribution /></a>
         <nav className="side-nav" aria-label="Wallet sections">
