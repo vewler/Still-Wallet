@@ -25,7 +25,7 @@ npm run build   # type-check + production build
 
 ### Cloudflare Workers
 
-Live at [stillwallet.net](https://stillwallet.net). Cloudflare serves the Vite build as static assets and the Worker handles `/api/*`. Config is in `wrangler.jsonc`.
+Cloudflare serves the Vite build as static assets and the Worker handles `/api/*`. Config is in `wrangler.jsonc`.
 
 ```sh
 npm run build
