@@ -35,10 +35,6 @@ npx wrangler deploy
 
 Put provider keys in Worker secrets.
 
-### Vercel
-
-The `still-by-ow2` project builds with Node 24 + Vite and serves it at [still-by-ow2.vercel.app](https://still-by-ow2.vercel.app/). `/api/` goes to the same gateway.
-
 ### Plain Node
 
 Any Node host with HTTPS on a fixed domain. From the project root:
