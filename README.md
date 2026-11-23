@@ -1,6 +1,6 @@
 # Still by ow2
 
-Self-custody wallet for eight mainnets that runs in the browser and installs as a PWA. Keys live in an encrypted vault on your device. The Node server serves the app and relays chain and price requests. Try it at [stillwallet.net](https://stillwallet.net). [Discord](https://discord.gg/ow2)
+Self-custody wallet for eight mainnets that runs in the browser and installs as a PWA. Keys live in an encrypted vault on your device. The Node server serves the app and relays chain and price requests. [Discord](https://discord.gg/ow2)
 
 ## Run locally
 
