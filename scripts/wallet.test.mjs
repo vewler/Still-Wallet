@@ -94,7 +94,7 @@ const gateway = createGateway({}, async (url, init) => {
     // The recipient check reads the recipient's own account; a plain wallet has none.
     if (rpc.method === 'getMultipleAccounts' && args[1]?.encoding === 'base64') return response(blockContext([null]))
     if (rpc.method === 'getMultipleAccounts') return response(blockContext([
-      { owner: 'TokenkegQfeZyiNwAJbNbGqPU9s5UVxuLDDQ7Kih4Q5', data: { parsed: { info: { tokenAmount: { amount: '5000000' } } } } }, null,
+      { owner: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', data: { parsed: { info: { tokenAmount: { amount: '5000000' } } } } }, null,
     ]))
     if (rpc.method === 'sendTransaction') {
       const tx = getTransactionDecoder().decode(Buffer.from(args[0], 'base64'))

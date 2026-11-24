@@ -2,7 +2,11 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import basicSsl from '@vitejs/plugin-basic-ssl'
+import { readFileSync } from 'node:fs'
 import { createGateway } from './server/gateway.ts'
+
+// Local dev uses the same public vars as the worker (WalletConnect project id, RPC overrides).
+for (const [key, value] of Object.entries((JSON.parse(readFileSync(new URL('./wrangler.jsonc', import.meta.url), 'utf8')) as { vars?: Record<string, string> }).vars ?? {})) process.env[key] ??= value
 
 const csp = [
   "default-src 'self'",
@@ -10,7 +14,7 @@ const csp = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
   "font-src 'self'",
-  "connect-src 'self' https: http://localhost:* http://127.0.0.1:*",
+  "connect-src 'self' https: wss://relay.walletconnect.org wss://relay.walletconnect.com http://localhost:* http://127.0.0.1:*",
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'none'",
@@ -55,7 +59,7 @@ self.addEventListener('activate', (event) => event.waitUntil((async () => {
         name: 'Still Wallet',
         short_name: 'Still Wallet',
         description: 'A privacy-first multi-chain wallet by ow2',
-        start_url: '/',
+        start_url: '/wallet',
         scope: '/',
         display: 'standalone',
         background_color: '#09090b',
@@ -74,8 +78,14 @@ self.addEventListener('activate', (event) => event.waitUntil((async () => {
         globPatterns: ['**/*.{js,css,html,png,svg,jpg,woff2,webmanifest,txt}'],
         // The XMR wallet worker (3.7 MB) loads on demand, not on install.
         globIgnores: ['**/monero.worker-*.js', '**/apple-touch-icon*', 'icons/{apple-touch-icon,still-touch-180,icon-192,icon-512,maskable-512}.png'],
-        navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api\//],
+        // Pages load fresh from the network so every open shows the latest build. Offline (or slow, 3s) falls back to the cached page.
+        navigateFallback: null,
+        directoryIndex: 'no-directory-index',
+        runtimeCaching: [{
+          urlPattern: ({ request, url }) => request.mode === 'navigate' && !url.pathname.startsWith('/api/'),
+          handler: 'NetworkFirst',
+          options: { cacheName: 'pages', networkTimeoutSeconds: 3, precacheFallback: { fallbackURL: '/index.html' } },
+        }],
       },
     }),
   ],

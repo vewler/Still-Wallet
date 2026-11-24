@@ -11,12 +11,12 @@ import { getTransferSolInstruction } from '@solana-program/system'
 import { getCreateAssociatedTokenIdempotentInstruction, getTransferCheckedInstruction } from '@solana-program/token'
 import { createPublicClient, defineChain, encodeFunctionData, erc20Abi, getAddress, http, keccak256, type Address, type Hex } from 'viem'
 import { estimateL1Fee, estimateOperatorFee } from 'viem/op-stack'
-import { addressFor, formatAmount, networks, parseAmount, type Addresses, type Network } from './networks'
+import { addressFor, formatAmount, l1Chains, networks, parseAmount, utxoChains, type Addresses, type Network } from './networks'
 import { tokenById, tokenPriceIds, type Token } from './tokens'
 import { type ActivityItem } from './storage'
 import { evmAccount, solanaKeypair, type Session } from './vault'
 
-function privateFetch(signal: AbortSignal): typeof fetch {
+export function privateFetch(signal: AbortSignal): typeof fetch {
   return async (input, init) => {
     const controller = new AbortController()
     const sources = [signal, init?.signal].filter((source): source is AbortSignal => Boolean(source))
@@ -71,12 +71,13 @@ async function solanaClient(network: Network, endpoint: string, signal: AbortSig
 /** Bitcoin uses an Esplora-style REST API (mempool.space by default). */
 async function bitcoinBalance(endpoint: string, owner: string, signal: AbortSignal) {
   const url = new URL(endpoint)
-  url.pathname = url.pathname.replace(/\/+$/, '') + '/address/' + encodeURIComponent(owner)
+  // Bitcoin Cash providers take the CashAddr without its prefix.
+  url.pathname = url.pathname.replace(/\/+$/, '') + '/address/' + encodeURIComponent(owner.replace(/^bitcoincash:/, ''))
   const response = await privateFetch(signal)(url)
-  if (!response.ok) throw new Error('The Bitcoin API returned an unsuccessful response.')
+  if (!response.ok) throw new Error('The balance provider returned an unsuccessful response.')
   const data = await response.json() as { chain_stats?: { funded_txo_sum?: number; spent_txo_sum?: number }; mempool_stats?: { funded_txo_sum?: number; spent_txo_sum?: number } }
   const sum = (stats?: { funded_txo_sum?: number; spent_txo_sum?: number }) => BigInt(stats?.funded_txo_sum ?? 0) - BigInt(stats?.spent_txo_sum ?? 0)
-  if (!data.chain_stats || !data.mempool_stats) throw new Error('The Bitcoin API did not return a balance.')
+  if (!data.chain_stats || !data.mempool_stats) throw new Error('The balance provider did not return a balance.')
   return sum(data.chain_stats) + sum(data.mempool_stats)
 }
 
@@ -102,7 +103,12 @@ export async function testEndpoint(network: Network, endpoint: string, signal: A
     if ((info.result as { nettype?: string } | undefined)?.nettype !== 'mainnet') throw new Error('The RPC endpoint is connected to a different network.')
     return
   }
-  if (network.chain === 'bitcoin') return (await import('./ledgerTransfers')).checkBitcoinNetwork(endpoint, privateFetch(signal))
+  if (utxoChains.has(network.chain)) return (await import('./ledgerTransfers')).checkBitcoinNetwork(endpoint, privateFetch(signal), network)
+  if (network.chain === 'tron') return (await import('./tron')).checkTron(endpoint, privateFetch(signal))
+  if (network.chain === 'kaspa') return (await import('./kaspa')).checkKaspa(endpoint, privateFetch(signal))
+  if (network.chain === 'sui') { await (await import('./sui')).checkSui(endpoint, privateFetch(signal)); return }
+  if (network.chain === 'aptos') return (await import('./aptos')).checkAptos(endpoint, privateFetch(signal))
+  if (l1Chains.has(network.chain)) return (await import('./l1/index')).l1Check(network, endpoint, privateFetch(signal))
   if (network.chain === 'xrp') { await (await import('./ledgerTransfers')).xrpServer(endpoint, privateFetch(signal)); return }
   if (network.chain === 'solana') await (await solanaClient(network, endpoint, signal)).getBlockHeight({ commitment: 'confirmed' }).send()
   else await evmClient(network, endpoint, signal)
@@ -111,7 +117,12 @@ export async function testEndpoint(network: Network, endpoint: string, signal: A
 export async function getBalance(network: Network, endpoint: string, addresses: Addresses, signal: AbortSignal) {
   const accountAddress = addressFor(network, addresses)
   if (network.chain === 'monero') throw new Error('Monero balances need the unlocked wallet.')
-  if (network.chain === 'bitcoin') return bitcoinBalance(endpoint, accountAddress, signal)
+  if (utxoChains.has(network.chain)) return bitcoinBalance(endpoint, accountAddress, signal)
+  if (network.chain === 'tron') return (await import('./tron')).tronBalance(endpoint, accountAddress, privateFetch(signal))
+  if (network.chain === 'kaspa') return (await import('./kaspa')).kaspaBalance(endpoint, accountAddress, privateFetch(signal))
+  if (network.chain === 'sui') return (await import('./sui')).suiBalance(endpoint, accountAddress, privateFetch(signal))
+  if (network.chain === 'aptos') return (await import('./aptos')).aptosBalance(endpoint, accountAddress, privateFetch(signal))
+  if (l1Chains.has(network.chain)) return (await import('./l1/index')).l1Balance(network, endpoint, accountAddress, privateFetch(signal))
   if (network.chain === 'xrp') return xrpBalance(endpoint, accountAddress, signal)
   if (network.chain === 'solana') {
     const client = await solanaClient(network, endpoint, signal)
@@ -121,7 +132,7 @@ export async function getBalance(network: Network, endpoint: string, addresses: 
   return client.getBalance({ address: getAddress(accountAddress) })
 }
 
-const tokenProgram = address('TokenkegQfeZyiNwAJbNbGqPU9s5UVxuLDDQ7Kih4Q5')
+const tokenProgram = address('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')
 const associatedTokenProgram = address('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL')
 
 async function associatedTokenAddress(owner: string, mint: string) {
@@ -135,6 +146,7 @@ export async function getTokenBalances(network: Network, endpoint: string, addre
   const owner = addressFor(network, addresses)
   const result: Record<string, bigint> = {}
   if (!list.length) return result
+  if (network.chain === 'tron') return (await import('./tron')).tronTokenBalances(endpoint, owner, list, privateFetch(signal))
   if (network.chain === 'solana') {
     const client = await solanaClient(network, endpoint, signal)
     // Read each ATA directly, free RPCs block owner-wide token queries.
@@ -193,6 +205,7 @@ type SignedTransfer = {
   hash: string
   lastValidBlockHeight?: number
   lastLedgerSequence?: number
+  from?: string
   broadcast: () => Promise<void>
 }
 
@@ -209,6 +222,8 @@ export type Quote = {
   via?: string
   /** Cross-chain swaps: seconds until the coins arrive. */
   eta?: number
+  /** Connected app that asked for this transaction. */
+  app?: string
   network: Network
   expires: number
   sign: (session: Session) => Promise<SignedTransfer>
@@ -218,7 +233,12 @@ export async function quoteTransfer(network: Network, endpoint: string, addresse
   const token = asset ? tokenById(asset) : undefined
   if (asset && (!token || token.network !== network.id)) throw new Error('Select an asset on the chosen network.')
   if (network.chain === 'monero') throw new Error('Monero transfers need the unlocked wallet.')
-  if (network.chain === 'bitcoin') return (await import('./ledgerTransfers')).quoteBitcoin(network, endpoint, addresses.bitcoin, recipient, amount, privateFetch(signal))
+  if (utxoChains.has(network.chain)) return (await import('./ledgerTransfers')).quoteBitcoin(network, endpoint, addressFor(network, addresses), recipient, amount, privateFetch(signal))
+  if (network.chain === 'sui') return (await import('./sui')).quoteSui(network, endpoint, addresses.sui, recipient, amount, privateFetch(signal))
+  if (network.chain === 'aptos') return (await import('./aptos')).quoteAptos(network, endpoint, addresses.aptos, addresses.aptosPublicKey, recipient, amount, privateFetch(signal))
+  if (network.chain === 'kaspa') return (await import('./kaspa')).quoteKaspa(network, endpoint, addresses.kaspa, recipient, amount, privateFetch(signal))
+  if (network.chain === 'tron') return (await import('./tron')).quoteTron(network, endpoint, addresses.tron, recipient, amount, token, privateFetch(signal))
+  if (l1Chains.has(network.chain)) return (await import('./l1/index')).l1Quote(network, endpoint, addressFor(network, addresses), recipient, amount, tag, privateFetch(signal))
   if (network.chain === 'xrp') return (await import('./ledgerTransfers')).quoteXrp(network, endpoint, addresses.xrp, recipient, amount, tag, privateFetch(signal))
   const decimals = token?.decimals ?? network.decimals
   const value = parseAmount(amount, decimals)
@@ -312,9 +332,19 @@ export async function quoteTransfer(network: Network, endpoint: string, addresse
   return quoteEvm(network, client, from, request, { to, value: display, asset })
 }
 
+/** A transaction a connected app asked for. */
+export async function quoteDapp(network: Network, endpoint: string, from: string, call: { to?: string; value?: string; data?: Hex }, app: string, signal: AbortSignal): Promise<Quote> {
+  if (!call.to) throw new Error('Deploying contracts from apps isn’t supported.')
+  const to = getAddress(call.to)
+  const value = call.value ? BigInt(call.value) : 0n
+  const client = await evmClient(network, endpoint, signal)
+  const data = call.data && call.data !== '0x' ? call.data : undefined
+  return { ...await quoteEvm(network, client, getAddress(from), { to, value, data }, { to, value: formatAmount(value, network.decimals), kind: 'dapp' }), app }
+}
+
 export async function quoteEvm(network: Network, client: Awaited<ReturnType<typeof evmClient>>, from: Address, transaction: { to: Address; value: bigint; data?: Hex }, details: Pick<Quote, 'to' | 'value' | 'asset' | 'kind' | 'receive'>): Promise<Quote> {
   const request = { account: from, ...transaction }
-  const feeFields = network.chain === 'bnb'
+  const feeFields = network.chain === 'bnb' || network.chain === 'ethereumclassic'
     ? client.getGasPrice().then((gasPrice) => ({ type: 'legacy' as const, gasPrice }))
     : client.estimateFeesPerGas({ type: 'eip1559' }).then((fees) => ({ type: 'eip1559' as const, ...fees }))
   const [estimate, fees, balance, nonce] = await Promise.all([
@@ -330,7 +360,7 @@ export async function quoteEvm(network: Network, client: Awaited<ReturnType<type
   }
   const estimatedGas = estimate
   const gas = estimatedGas > 21_000n ? (estimatedGas * 120n + 99n) / 100n : estimatedGas
-  const extra = network.chain === 'base' ? await Promise.all([
+  const extra = network.chain === 'base' || network.chain === 'optimism' ? await Promise.all([
     estimateL1Fee(client, { ...request, gasPriceOracleAddress: '0x420000000000000000000000000000000000000F' }),
     estimateOperatorFee(client, { ...request, gasPriceOracleAddress: '0x420000000000000000000000000000000000000F' }),
   ]) : [0n, 0n]
@@ -361,7 +391,12 @@ export async function quoteEvm(network: Network, client: Awaited<ReturnType<type
 }
 
 export async function checkTransaction(item: ActivityItem, network: Network, endpoint: string, signal: AbortSignal): Promise<ActivityItem['status']> {
-  if (network.chain === 'bitcoin') return (await import('./ledgerTransfers')).bitcoinStatus(item, endpoint, privateFetch(signal))
+  if (utxoChains.has(network.chain)) return (await import('./ledgerTransfers')).bitcoinStatus(item, endpoint, privateFetch(signal))
+  if (network.chain === 'tron') return (await import('./tron')).tronStatus(item, endpoint, privateFetch(signal))
+  if (network.chain === 'kaspa') return (await import('./kaspa')).kaspaStatus(item, endpoint, privateFetch(signal))
+  if (network.chain === 'sui') return (await import('./sui')).suiStatus(item, endpoint, privateFetch(signal))
+  if (network.chain === 'aptos') return (await import('./aptos')).aptosStatus(item, endpoint, privateFetch(signal))
+  if (l1Chains.has(network.chain)) return (await import('./l1/index')).l1Status(item, network, endpoint, privateFetch(signal))
   if (network.chain === 'xrp') return (await import('./ledgerTransfers')).xrpStatus(item, endpoint, privateFetch(signal))
   if (network.chain === 'monero') {
     const reply = await moneroRequest(endpoint, '/get_transactions', { txs_hashes: [item.hash] }, signal) as { txs?: { in_pool?: boolean; block_height?: number }[] }

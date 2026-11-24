@@ -105,21 +105,40 @@
 .float-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px #3ddc8426; }
 
 /* Chains strip */
-.landing-chains { border-block: 1px solid var(--landing-line); background: #0a0a0c; }
-/* Label left, logos in aligned columns beside it; stacked and centered on narrow screens. Landing.tsx picks the column count (--cols): as many as fit, never one coin alone on the last row */
-.chains-inner { display: flex; align-items: center; justify-content: center; gap: 14px 28px; padding-block: 22px; color: #6c6c76; font-size: 14px; font-weight: 600; }
+.landing-chains { padding-block: 8px; }
+/* "Works with" above and "and more" below, outside the outlined box. Landing.tsx picks how many coins fit and hides the rest */
+.chains-inner { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px 28px; padding-block: 22px 12px; text-align: center; color: #6c6c76; font-size: 14px; font-weight: 600; }
 .chains-inner > span { flex: none; }
-.chains-inner.is-stacked { flex-direction: column; text-align: center; }
-.chain-logos { display: grid; grid-template-columns: repeat(var(--cols, 4), auto); justify-items: start; gap: 14px 24px; }
-/* Full width so all 8 fit in one row as soon as they can */
+.chain-logos > [hidden] { display: none !important; }
+.chain-logos.is-measuring > span { display: inline-flex !important; }
+.chain-logos:not(.is-short) .chain-symbol, .chain-logos.is-short .chain-name { display: none; }
+/* Outlined box spans the full width; coins spread to both ends. Label above and "and more" below sit outside it */
+.chain-logos { display: grid; grid-template-columns: repeat(var(--cols, 4), auto); justify-content: space-between; justify-items: start; gap: 12px 14px; width: 100%; padding: 14px 18px; border: 1px solid var(--landing-line); border-radius: 18px; background: #0a0a0c; text-align: left; }
+/* Full width so all fit in one row as soon as they can */
 .landing-chains .chains-inner { width: calc(100% - 40px); }
-.chain-logos > span { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; color: #d8d8de; font-size: 16px; font-weight: 640; }
-@media (max-width: 859px), (pointer: coarse) {
-  .chains-inner { flex-direction: column; justify-content: center; text-align: center; }
-  .chain-logos { gap: 14px 24px; text-align: left; }
-}
+/* Same size at every width, so a wider window never fits fewer coins */
+.chain-logos > span { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; color: #d8d8de; font-size: 14px; font-weight: 640; }
 .chain-logos .coin { width: 32px; height: 32px; }
+.chains-more { margin: 0; padding-bottom: 20px; text-align: center; color: #6c6c76; font-size: 14px; font-weight: 600; }
 .chain-logos .coin svg { width: 18px; height: 18px; }
+.chain-logos .coin--token b { font-size: 9px; letter-spacing: -.05em; }
+/* Phones: tighter box so 4 per row fit with even padding */
+@media (max-width: 640px) {
+  .landing-chains .chains-inner { width: calc(100% - 24px); }
+  .chain-logos { padding: 12px 14px; column-gap: 12px; }
+}
+/* Small phones: a bit tighter so 4 per row still fit */
+@media (max-width: 420px) {
+  .chain-logos { column-gap: 10px; padding-inline: 12px; }
+  .chain-logos > span { gap: 7px; font-size: 13px; }
+  .chain-logos .coin { width: 28px; height: 28px; }
+}
+@media (max-width: 340px) {
+  .chain-logos { column-gap: 8px; padding-inline: 10px; }
+  .chain-logos > span { gap: 5px; font-size: 12px; }
+  .chain-logos .coin { width: 24px; height: 24px; }
+  .chain-logos .coin svg { width: 14px; height: 14px; }
+}
 
 /* Sections */
 .landing-section { padding-block: clamp(64px, 9vw, 128px); }
@@ -210,8 +229,6 @@
   .feature-grid { grid-template-columns: minmax(0, 1fr); }
   .feature-card, .steps li { padding: 22px; }
   .security-stats div { padding: 18px; }
-  .chain-logos { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px 22px; }
-  .chain-logos > span { gap: 10px; font-size: 14px; }
   .float-card { padding: 9px 11px; font-size: 12px; }
   .float-card--one { left: 0; top: 56%; }
   .float-card--two { right: 0; }

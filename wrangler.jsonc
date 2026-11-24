@@ -6,7 +6,8 @@
   "preview_urls": false,
   "vars": {
     "STILL_RPC_BASE": "https://base-rpc.publicnode.com/",
-    "STILL_RPC_XRP": "https://honeycluster.io/"
+    "STILL_RPC_XRP": "https://honeycluster.io/",
+    "STILL_WALLETCONNECT_PROJECT_ID": "f19623d85205c8afe7e5a93add01f97f"
   },
   "assets": {
     "directory": "./dist",

@@ -6,6 +6,7 @@ import type { Preferences } from '../storage'
 import { Coin, TokenIcon } from './Icons'
 import { Heading } from './Pages'
 import { ManageCoins } from './Manage'
+import { t } from '../i18n'
 
 const ranges = [['1', '24h'], ['7', '7d'], ['30', '30d'], ['365', '1y']] as const
 type Days = typeof ranges[number][0]
@@ -19,7 +20,8 @@ const defaultCharts: AssetLayout = { order: defaultIds, shown: defaultIds }
 
 /** One chart per price (USDC on 3 chains = 1 chart). */
 function chartUniverse(environment: Preferences['environment']) {
-  const all = allAssets(environment)
+  // Imported tokens have no price history.
+  const all = allAssets(environment).filter((asset) => !asset.token?.user)
   return all.filter((asset, index) => all.findIndex((other) => other.priceId === asset.priceId) === index)
 }
 
@@ -144,13 +146,13 @@ export function ChartsPage({ preferences }: { preferences: Preferences }) {
 
   return <div className="page charts-page">
     <Heading title="Charts" action={<div className="charts-actions">
-      <Toggle className="charts-range" label="Time range" options={ranges} value={days} set={setDays} />
-      <button type="button" className="round-button" aria-label="Manage charts" onClick={() => setManaging(true)}><SlidersHorizontal size={18} /></button>
+      <Toggle className="charts-range" label={t('Time range')} options={ranges} value={days} set={setDays} />
+      <button type="button" className="round-button" aria-label={t('Manage charts')} onClick={() => setManaging(true)}><SlidersHorizontal size={18} /></button>
     </div>} />
-    {preferences.offline ? <p className="field-note">Network requests are paused, so charts can’t load. Turn them back on in Settings.</p>
-      : shown.length === 0 ? <p className="field-note">No charts turned on. Use the manage button to add some.</p>
+    {preferences.offline ? <p className="field-note">{t('Network requests are paused, so charts can’t load. Turn them back on in Settings.')}</p>
+      : shown.length === 0 ? <p className="field-note">{t('No charts turned on. Use the manage button to add some.')}</p>
       : <div className="chart-grid">{shown.map((asset) => <ChartCard key={`${asset.priceId}-${preferences.currency}`} asset={asset} days={days} currency={preferences.currency} ready={ready} />)}</div>}
-    <p className="field-note">Prices from CoinGecko.</p>
+    <p className="field-note">{t('Prices from CoinGecko.')}</p>
     {managing && <ManageCoins environment={preferences.environment} assets={chartUniverse(preferences.environment)} layout={layout} defaults={defaultCharts} save={save} place="in Charts" close={() => setManaging(false)} />}
   </div>
 }
@@ -188,7 +190,7 @@ function ChartCard({ asset, days, currency, ready }: { asset: Asset; days: Days;
   const change = history && history !== 'error' ? changeOf(history) : undefined
   const up = (change ?? 0) >= 0
   return <article className="chart-card">
-    <button type="button" className="chart-hit" aria-label={`Open ${asset.name} chart`} onClick={() => setOpen(true)} />
+    <button type="button" className="chart-hit" aria-label={t('Open {name} chart', { name: asset.name })} onClick={() => setOpen(true)} />
     <header>
       {asset.token ? <TokenIcon token={asset.token} /> : <Coin chain={asset.chain} />}
       <span className="chart-name"><strong>{asset.name}</strong><small>{asset.symbol}</small></span>
@@ -197,9 +199,9 @@ function ChartCard({ asset, days, currency, ready }: { asset: Asset; days: Days;
         <small className={up ? 'up' : 'danger-text'}>{up ? '+' : ''}{change!.toFixed(2)}%</small>
       </span>}
     </header>
-    {history === 'error' ? <p className="chart-empty">Chart unavailable right now. <button type="button" className="text-link" onClick={retry}>Try again</button></p>
-      : history ? <MorphLine points={history.points} up={up} label={`${asset.name} price, ${change!.toFixed(2)}% over the period`} />
-      : <div className="chart-loading" aria-label="Loading chart" />}
+    {history === 'error' ? <p className="chart-empty">{t('Chart unavailable right now.')} <button type="button" className="text-link" onClick={retry}>{t('Try again')}</button></p>
+      : history ? <MorphLine points={history.points} up={up} label={t('{name} price, {change}% over the period', { name: asset.name, change: change!.toFixed(2) })} />
+      : <div className="chart-loading" aria-label={t('Loading chart')} />}
     {open && <ChartView asset={asset} days={days} currency={currency} close={() => setOpen(false)} />}
   </article>
 }
@@ -213,7 +215,7 @@ function Toggle<T extends string>({ className, label, options, value, set }: { c
   const index = options.findIndex(([option]) => option === value)
   return <div className={`segmented segmented--slide ${className}`} role="group" aria-label={label} style={{ '--n': options.length, '--i': index } as CSSProperties}>
     <span className="segmented-pill" aria-hidden="true" />
-    {options.map(([option, text]) => <button key={option} type="button" aria-pressed={value === option} onClick={() => set(option)}>{text}</button>)}
+    {options.map(([option, text]) => <button key={option} type="button" aria-pressed={value === option} onClick={() => set(option)}>{t(text)}</button>)}
   </div>
 }
 
@@ -342,23 +344,23 @@ function ChartView({ asset, days: startDays, currency, close }: { asset: Asset; 
     <div className="chart-view">
       <div className="chart-view-price">
         <strong>{history && history !== 'error' ? <Rolling value={history.last} format={(value) => money(value, currency)} /> :' '}</strong>
-        <small className={up ? 'up' : 'danger-text'}>{change === undefined ?' ' : <><Rolling value={change} format={(value) => `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`} /> · <CrossFade id={label}>{label}</CrossFade></>}</small>
+        <small className={up ? 'up' : 'danger-text'}>{change === undefined ?' ' : <><Rolling value={change} format={(value) => `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`} /> · <CrossFade id={label}>{t(label)}</CrossFade></>}</small>
       </div>
       <div className="chart-view-plot">
-        {history === 'error' ? <p className="chart-empty">Chart unavailable right now. <button type="button" className="text-link" onClick={retry}>Try again</button></p>
-          : !history ? <div className="chart-loading" aria-label="Loading chart" />
-          : kind === 'line' ? <MorphLine points={history.points} up={up} label={`${asset.name} price over ${label}`} />
-          : <Candles points={history.points} count={candleCount[days]} label={`${asset.name} candles over ${label}`} />}
+        {history === 'error' ? <p className="chart-empty">{t('Chart unavailable right now.')} <button type="button" className="text-link" onClick={retry}>{t('Try again')}</button></p>
+          : !history ? <div className="chart-loading" aria-label={t('Loading chart')} />
+          : kind === 'line' ? <MorphLine points={history.points} up={up} label={t('{name} price over {range}', { name: asset.name, range: t(label) })} />
+          : <Candles points={history.points} count={candleCount[days]} label={t('{name} candles over {range}', { name: asset.name, range: t(label) })} />}
         {history && history !== 'error' ? <CrossFade id={days}><div className="chart-axis" aria-hidden="true">{axisLabels(days).map((text, index) => <span key={index}>{text}</span>)}</div></CrossFade>
           : <div className="chart-axis" aria-hidden="true" />}
       </div>
       <dl className="chart-view-stats">
-        <div><dt>High</dt><dd>{history && history !== 'error' ? <Rolling value={Math.max(...history.points)} format={(value) => money(value, currency)} /> : '—'}</dd></div>
-        <div><dt>Low</dt><dd>{history && history !== 'error' ? <Rolling value={Math.min(...history.points)} format={(value) => money(value, currency)} /> : '—'}</dd></div>
+        <div><dt>{t('High')}</dt><dd>{history && history !== 'error' ? <Rolling value={Math.max(...history.points)} format={(value) => money(value, currency)} /> : '—'}</dd></div>
+        <div><dt>{t('Low')}</dt><dd>{history && history !== 'error' ? <Rolling value={Math.min(...history.points)} format={(value) => money(value, currency)} /> : '—'}</dd></div>
       </dl>
       <div className="chart-view-controls">
-        <Toggle className="charts-range" label="Time range" options={ranges} value={days} set={setDays} />
-        <Toggle className="chart-kind" label="Chart type" options={kinds} value={kind} set={(value) => { lastKind = value; setKind(value) }} />
+        <Toggle className="charts-range" label={t('Time range')} options={ranges} value={days} set={setDays} />
+        <Toggle className="chart-kind" label={t('Chart type')} options={kinds} value={kind} set={(value) => { lastKind = value; setKind(value) }} />
       </div>
     </div>
   </Dialog>

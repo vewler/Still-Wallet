@@ -1,10 +1,13 @@
 import { useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
-import { GripVertical, Minus, Plus } from 'lucide-react'
-import { arrangeAssets, arrangeList, defaultLayout, type Asset, type AssetLayout } from '../assets'
+import { GripVertical, Minus, Plus, Trash2 } from 'lucide-react'
+import { allAssets, arrangeAssets, arrangeList, defaultLayout, type Asset, type AssetLayout } from '../assets'
 import type { Environment } from '../networks'
-import { networks } from '../networks'
+import { networks, type NetworkId } from '../networks'
+import { userTokenId, type UserToken } from '../tokens'
+import { ImportToken } from './ImportToken'
 import { Coin, TokenIcon } from './Icons'
 import { Dialog } from './Dialog'
+import { t } from '../i18n'
 
 function AssetIcon({ asset }: { asset: Asset }) {
   return asset.token ? <TokenIcon token={asset.token} /> : <Coin chain={asset.chain} />
@@ -80,14 +83,24 @@ function useFlip(root: RefObject<HTMLElement | null>, paused = false) {
   })
 }
 
-const where = (asset: Asset) => asset.token ? `${asset.name} · ${networks[asset.network].name}` : asset.symbol
+const where = (asset: Asset) => asset.token ? `${asset.name} · ${networks[asset.network].name}${asset.token.user && !asset.token.verified ? ` · ${t('Unverified')}` : ''}` : asset.symbol
 
 /** Choose which coins show on Home and in what order. Saved per wallet. */
-export function ManageCoins({ environment, layout, save, close, assets, title = 'Manage tokens', defaults = defaultLayout, place = 'on Home' }: {
+export type TokenImports = {
+  lookup: (network: NetworkId, address: string, signal: AbortSignal) => Promise<UserToken>
+  add: (token: UserToken) => boolean
+  remove: (id: string) => void
+}
+
+export function ManageCoins({ environment, layout, save, close, assets, title = 'Manage tokens', defaults = defaultLayout, place = 'on Home', imports }: {
   environment: Environment; layout: AssetLayout; save: (layout: AssetLayout) => void; close: () => void
   /** Custom list (Charts uses one per coin). Defaults to every Home coin. */
   assets?: Asset[]; title?: string; defaults?: AssetLayout; place?: string
+  /** Home only: import tokens by address, remove imported ones. */
+  imports?: TokenImports
 }) {
+  const [importing, setImporting] = useState(false)
+  const [returned, setReturned] = useState(false)
   const arranged = assets ? arrangeList(assets, layout) : arrangeAssets(environment, layout)
   const [order, setOrder] = useState(() => arranged.filter((entry) => entry.shown).map((entry) => entry.asset))
   const hidden = arranged.filter((entry) => !order.some((asset) => asset.id === entry.asset.id)).map((entry) => entry.asset)
@@ -147,31 +160,51 @@ export function ManageCoins({ environment, layout, save, close, assets, title = 
     return 0
   }
 
-  return <Dialog title={title} close={close}>
+  if (importing && imports) {
+    return <Dialog title={t('Import token')} step="import" close={close}>
+      <ImportToken environment={environment} lookup={imports.lookup} cancel={() => { setImporting(false); setReturned(true) }} add={(token) => {
+        if (!imports.add(token)) return
+        const id = userTokenId(token.network, token.contract)
+        const asset = allAssets(environment).find((entry) => entry.id === id)
+        if (asset) setOrder((current) => [...current.filter((entry) => entry.id !== id), asset])
+        setImporting(false)
+        setReturned(true)
+      }} />
+    </Dialog>
+  }
+
+  return <Dialog title={t(title)} step="list" back={returned} close={close}>
     <div ref={body} className="manage-body">
-    <p className="group-label manage-label" data-flip="label-shown">{place[0].toUpperCase() + place.slice(1)} · drag to reorder</p>
+    <p className="group-label manage-label" data-flip="label-shown">{place === 'in Charts' ? t('In Charts · drag to reorder') : t('On Home · drag to reorder')}</p>
     <div className="group manage-list" ref={list}>
       <span className="manage-bg" data-flip="bg-shown" data-scale aria-hidden="true" />
       {/* Always mounted and fading, so the empty card keeps one row of height and add/remove animate the same. */}
-      <p className={order.length ? 'manage-empty' : 'manage-empty shown'} aria-hidden={order.length > 0}>No tokens {place}. Add some below.</p>
+      <p className={order.length ? 'manage-empty' : 'manage-empty shown'} aria-hidden={order.length > 0}>{place === 'in Charts' ? t('No tokens in Charts. Add some below.') : t('No tokens on Home. Add some below.')}</p>
       {order.map((asset, index) => <div key={asset.id} data-asset={asset.id} data-flip={asset.id} className={`row manage-row${drag?.id === asset.id ? ' is-dragging' : ''}${drag ? ' is-sorting' : ''}${drag && drag.id !== asset.id && visual(index) > 0 ? ' divider' : ''}`}
         style={drag ? { transform: drag.id === asset.id ? `translateY(${drag.dy}px) scale(1.02)` : `translateY(${shift(index)}px)` } : undefined}>
-        <button type="button" className="grip" aria-label={`Drag to reorder ${asset.symbol}. Arrow keys move it.`} onKeyDown={(event) => {
+        <button type="button" className="grip" aria-label={t('Drag to reorder {symbol}. Arrow keys move it.', { symbol: asset.symbol })} onKeyDown={(event) => {
           // Arrow keys on the grip reorder.
           if (event.key === 'ArrowUp' || event.key === 'ArrowDown') { event.preventDefault(); move(index, event.key === 'ArrowUp' ? -1 : 1) }
         }} onPointerDown={(event) => startDrag(event, asset.id)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}><GripVertical size={18} /></button>
         <AssetIcon asset={asset} />
         <span className="row-text"><strong>{asset.token ? asset.symbol : asset.name}</strong><small>{where(asset)}</small></span>
         <span className="manage-actions">
-          <button type="button" className="icon-button small manage-remove" aria-label={`Hide ${asset.symbol}`} onClick={() => commit(order.filter((entry) => entry.id !== asset.id))}><Minus size={17} /></button>
+          <button type="button" className="icon-button small manage-remove" aria-label={t('Hide {symbol}', { symbol: asset.symbol })} onClick={() => commit(order.filter((entry) => entry.id !== asset.id))}><Minus size={17} /></button>
         </span>
       </div>)}
     </div>
     {hidden.length > 0 && <>
-      <p className="group-label manage-label" data-flip="label-add" data-fade>Add tokens</p>
+      <p className="group-label manage-label" data-flip="label-add" data-fade>{t('Add tokens')}</p>
       <div className="group manage-list">
         <span className="manage-bg" data-flip="bg-add" data-scale aria-hidden="true" />
-        {hidden.map((asset) => <button type="button" key={asset.id} data-flip={asset.id} className="row manage-row" onClick={() => commit([...order, asset])}>
+        {hidden.map((asset) => asset.token?.user === 'custom' && imports ? <div key={asset.id} data-flip={asset.id} className="row manage-row" onClick={() => commit([...order, asset])}>
+          <AssetIcon asset={asset} />
+          <span className="row-text"><strong>{asset.symbol}</strong><small>{where(asset)}</small></span>
+          <span className="manage-actions">
+            <button type="button" className="icon-button small manage-remove" aria-label={t('Remove {symbol}', { symbol: asset.symbol })} onClick={(event) => { event.stopPropagation(); imports.remove(asset.id) }}><Trash2 size={16} /></button>
+            <button type="button" className="manage-add manage-add-button" aria-label={t('Add {symbol}', { symbol: asset.symbol })} onClick={(event) => { event.stopPropagation(); commit([...order, asset]) }}><Plus size={17} /></button>
+          </span>
+        </div> : <button type="button" key={asset.id} data-flip={asset.id} className="row manage-row" onClick={() => commit([...order, asset])}>
           <AssetIcon asset={asset} />
           <span className="row-text"><strong>{asset.token ? asset.symbol : asset.name}</strong><small>{where(asset)}</small></span>
           <span className="manage-add"><Plus size={17} /></span>
@@ -179,6 +212,7 @@ export function ManageCoins({ environment, layout, save, close, assets, title = 
       </div>
     </>}
     </div>
-    <button type="button" className="button text-button wide" onClick={() => { const next = (assets ? arrangeList(assets, defaults) : arrangeAssets(environment, defaults)).filter((entry) => entry.shown).map((entry) => entry.asset); commit(next) }}>Reset to default</button>
+    {imports && <button type="button" className="button secondary wide manage-import" onClick={() => setImporting(true)}><Plus size={17} />{t('Import token')}</button>}
+    <button type="button" className="button text-button wide" onClick={() => { const next = (assets ? arrangeList(assets, defaults) : arrangeAssets(environment, defaults)).filter((entry) => entry.shown).map((entry) => entry.asset); commit(next) }}>{t('Reset to default')}</button>
   </Dialog>
 }

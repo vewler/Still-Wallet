@@ -2,22 +2,24 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 import { ArrowLeft, ArrowRight, ArrowUp, Box, Check, Copy, ExternalLink, QrCode, ShieldAlert, Shuffle } from 'lucide-react'
 import { addressFor, crossNetworks, explorerUrl, networks as mainnets, type Addresses, type Network, type NetworkId } from '../networks'
 import type { Quote } from '../rpc'
-import type { ActivityItem } from '../storage'
+import type { ActivityItem, Contact } from '../storage'
+import { ContactAvatar, contactsFor, findContact, SaveContact, shortAddress, type EditContact } from './Contacts'
 import { Coin, TokenIcon } from './Icons'
-import { tokenById, tokens, type Token } from '../tokens'
+import { tokenById, tokens, unswappable, type Token } from '../tokens'
 import { afterTap, Dialog, ErrorSlot, Glide, Notice, Slot } from './Dialog'
 import { Picker } from './Picker'
+import { t } from '../i18n'
 
 function NetworkField({ networks, selected, change }: { networks: Network[]; selected: Network; change: (network: Network) => void }) {
-  return <div className="field"><span>Network</span>
-    <Picker label="Network" value={selected.id} onChange={(id) => change(networks.find((network) => network.id === id)!)}
+  return <div className="field"><span>{t('Network')}</span>
+    <Picker label={t('Network')} value={selected.id} onChange={(id) => change(networks.find((network) => network.id === id)!)}
       options={networks.map((network) => ({ value: network.id, label: network.name, sub: `${network.label} · ${network.symbol}`, icon: <Coin chain={network.chain} /> }))} />
   </div>
 }
 
 function AssetField({ network, label, value, change }: { network: Network; label: string; value: string; change: (asset: string) => void }) {
-  return <div className="field"><span>{label}</span>
-    <Picker label={label} value={value} onChange={change} options={[
+  return <div className="field"><span>{t(label)}</span>
+    <Picker label={t(label)} value={value} onChange={change} options={[
       { value: network.id, label: network.symbol, sub: network.name, icon: <Coin chain={network.chain} /> },
       ...tokens.filter((token) => token.network === network.id).map((token) => ({ value: token.id, label: token.symbol, sub: token.name, icon: <TokenIcon token={token} /> })),
     ]} />
@@ -40,13 +42,13 @@ export function Receive({ initial, initialAsset, networks, addresses, close }: {
     return () => { current = false }
   }, [address])
 
-  return <Dialog title="Receive" close={close}>
+  return <Dialog title={t('Receive')} close={close}>
     <div className="form">
       <NetworkField networks={networks} selected={selected} change={(network) => { setSelected(network); setAsset(network.id) }} />
       <Slot open={tokens.some((token) => token.network === selected.id)}><AssetField label="Asset" network={selected} value={asset} change={setAsset} /></Slot>
-      <div className="qr-wrap">{qr?.address === address && qr.image ? <img src={qr.image} alt={`QR code for your ${selected.name} address`} width="196" height="196" /> : <span>{qr?.address === address ? 'QR code unavailable' : 'Preparing QR code…'}</span>}</div>
-      <label className="field">Your {selected.name} address<input className="mono address-field" value={address} readOnly onFocus={(event) => event.target.select()} /></label>
-      <Glide><p className="field-note">{selected.chain === 'xrp' ? 'Use the XRP Ledger. This wallet receives XRP without a destination tag. A new address needs the ledger’s current account reserve to activate.' : selected.chain === 'bitcoin' ? 'Send BTC on the Bitcoin network to this native SegWit (bc1) address.' : selected.chain === 'monero' ? 'Send XMR on the Monero network. Your view key scans new blocks on this device, incoming XMR shows after a refresh and unlocks after 10 blocks, about 20 minutes.' : `Use ${selected.name} ${selected.label} to receive ${tokenById(asset)?.symbol ?? selected.symbol}.`}</p></Glide>
+      <div className="qr-wrap">{qr?.address === address && qr.image ? <img src={qr.image} alt={t('QR code for your {network} address', { network: selected.name })} width="196" height="196" /> : <span>{qr?.address === address ? t('QR code unavailable') : t('Preparing QR code…')}</span>}</div>
+      <label className="field">{t('Your {network} address', { network: selected.name })}<input className="mono address-field" value={address} readOnly onFocus={(event) => event.target.select()} /></label>
+      <Glide><p className="field-note">{selected.chain === 'xrp' ? t('Use the XRP Ledger. This wallet receives XRP without a destination tag. A new address needs the ledger’s current account reserve to activate.') : selected.chain === 'bitcoin' ? t('Send BTC on the Bitcoin network to this native SegWit (bc1) address.') : selected.chain === 'litecoin' ? t('Send LTC on the Litecoin network to this native SegWit (ltc1) address.') : selected.chain === 'dogecoin' ? t('Send DOGE on the Dogecoin network to this address.') : selected.chain === 'bitcoincash' ? t('Send BCH on the Bitcoin Cash network to this CashAddr address.') : selected.chain === 'dash' ? t('Send DASH on the Dash network to this address.') : selected.chain === 'zcash' ? t('Send ZEC to this transparent (t1) address. Shielded wallets can send here too, the coins arrive unshielded.') : selected.chain === 'kaspa' ? t('Send KAS on the Kaspa network to this address.') : selected.chain === 'tron' ? t('Use the Tron network (TRC-20 for tokens) to receive {symbol}. Sending tokens from Still needs some TRX for fees.', { symbol: tokenById(asset)?.symbol ?? 'TRX' }) : selected.chain === 'monero' ? t('Send XMR on the Monero network. Your view key scans new blocks on this device, incoming XMR shows after a refresh and unlocks after 10 blocks, about 20 minutes.') : t('Use {network} to receive {symbol}.', { network: `${selected.name} ${selected.label}`, symbol: tokenById(asset)?.symbol ?? selected.symbol })}</p></Glide>
       <button className="button primary wide" onClick={async () => {
         try {
           await navigator.clipboard.writeText(address)
@@ -54,15 +56,17 @@ export function Receive({ initial, initialAsset, networks, addresses, close }: {
         } catch {
           setCopyResult({ network: selected.id, copied: false })
         }
-      }}><span key={String(!!result?.copied)} className="label-swap">{result?.copied ? <Check size={18} /> : <Copy size={18} />}{result?.copied ? 'Address copied' : 'Copy address'}</span></button>
-      <ErrorSlot error={result && !result.copied ? 'Select and copy the address above.' : ''} />
+      }}><span key={String(!!result?.copied)} className="label-swap">{result?.copied ? <Check size={18} /> : <Copy size={18} />}{result?.copied ? t('Address copied') : t('Copy address')}</span></button>
+      <ErrorSlot error={result && !result.copied ? t('Select and copy the address above.') : ''} />
     </div>
   </Dialog>
 }
 
 type TransactionActions = { close: () => void; submit: (review: Quote) => Promise<ActivityItem>; finished: () => void }
+/** Send only: saved contacts to pick from, and save after sending. */
+type Book = { contacts: Contact[]; editContact: EditContact }
 
-export function Send({ initial, initialAsset, networks, quote, ...actions }: TransactionActions & {
+export function Send({ initial, initialAsset, networks, quote, contacts, editContact, ...actions }: TransactionActions & Book & {
   initial?: Network; initialAsset?: string; networks: Network[]
   quote: (network: Network, to: string, amount: string, signal: AbortSignal, asset?: string, tag?: string) => Promise<Quote>
 }) {
@@ -72,20 +76,31 @@ export function Send({ initial, initialAsset, networks, quote, ...actions }: Tra
   const [amount, setAmount] = useState('')
   const [tag, setTag] = useState('')
   const token = tokenById(asset)
-  return <TransactionDialog {...actions} title="Send" prepare={(signal) => quote(selected, recipient, amount, signal, token?.id, tag)}>
+  const saved = contactsFor(contacts, selected).sort((a, b) => a.name.localeCompare(b.name))
+  const picked = findContact(contacts, selected, recipient)
+  return <TransactionDialog {...actions} title="Send" prepare={(signal) => quote(selected, recipient, amount, signal, token?.id, tag)}
+    contactName={(to) => findContact(contacts, selected, to)?.name}
+    after={(item) => !item.kind && item.status === 'submitted' ? <SaveContact network={selected} address={recipient} contacts={contacts} edit={editContact} /> : null}>
     <NetworkField networks={networks} selected={selected} change={(network) => { setSelected(network); setAsset(network.id); setTag('') }} />
     <Slot open={tokens.some((item) => item.network === selected.id)}><AssetField label="Asset" network={selected} value={asset} change={setAsset} /></Slot>
-    <label className="field">{token && selected.chain === 'solana' ? 'Recipient wallet address' : 'Recipient address'}<input className="mono" name="recipient" placeholder={selected.chain === 'bitcoin' ? 'Bitcoin address' : selected.chain === 'xrp' ? 'XRP address' : selected.chain === 'monero' ? 'Monero address (4… or 8…)' : selected.chain === 'solana' ? 'Solana address' : '0x…'} value={recipient} onChange={(event) => setRecipient(event.target.value)} autoCapitalize="none" autoComplete="off" autoCorrect="off" spellCheck={false} maxLength={100} required /></label>
-    <Slot open={selected.chain === 'xrp'}><label className="field">Destination tag (if required)<input name="tag" inputMode="numeric" autoComplete="off" value={tag} onChange={(event) => setTag(event.target.value)} maxLength={10} /></label></Slot>
-    <label className="field">Amount in {token?.symbol ?? selected.symbol}<input name="amount" inputMode="decimal" autoComplete="off" autoCorrect="off" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.target.value)} maxLength={36} required /></label>
+    <Slot open={saved.length > 0}><div className="field"><span>{t('Contact')}</span>
+      <Picker label={t('Contact')} value={picked?.id ?? ''} onChange={(id) => { const contact = saved.find((item) => item.id === id); setRecipient(contact?.address ?? '') }} options={[
+        { value: '', label: t('New address'), sub: t('Type or paste it below') },
+        ...saved.map((contact) => ({ value: contact.id, label: contact.name, sub: `${shortAddress(contact.address)} · ${mainnets[contact.network].name}`, icon: <ContactAvatar contact={contact} /> })),
+      ]} />
+    </div></Slot>
+    <label className="field">{token && selected.chain === 'solana' ? t('Recipient wallet address') : t('Recipient address')}<input className="mono" name="recipient" placeholder={selected.addressHint ?? (selected.chain === 'bitcoin' ? t('{network} address', { network: 'Bitcoin' }) : selected.chain === 'litecoin' ? t('{network} address', { network: 'Litecoin' }) : selected.chain === 'dogecoin' ? t('{network} address', { network: 'Dogecoin' }) + ' (D…)' : selected.chain === 'tron' ? t('{network} address', { network: 'Tron' }) + ' (T…)' : selected.chain === 'xrp' ? t('{network} address', { network: 'XRP' }) : selected.chain === 'monero' ? t('{network} address', { network: 'Monero' }) + ' (4…, 8…)' : selected.chain === 'solana' ? t('{network} address', { network: 'Solana' }) : selected.chain === 'sui' ? t('{network} address', { network: 'Sui' }) + ' (0x…)' : selected.chain === 'aptos' ? t('{network} address', { network: 'Aptos' }) + ' (0x…)' : '0x…')} value={recipient} onChange={(event) => setRecipient(event.target.value)} autoCapitalize="none" autoComplete="off" autoCorrect="off" spellCheck={false} maxLength={100} required /></label>
+    <Slot open={selected.chain === 'xrp'}><label className="field">{t('Destination tag (if required)')}<input name="tag" inputMode="numeric" autoComplete="off" value={tag} onChange={(event) => setTag(event.target.value)} maxLength={10} /></label></Slot>
+    <Slot open={Boolean(selected.memo)}><label className="field">{t('Memo (if required)')}<input name="memo" autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} value={tag} onChange={(event) => setTag(event.target.value)} maxLength={selected.chain === 'stellar' ? 28 : selected.chain === 'stacks' ? 34 : 200} /></label></Slot>
+    <label className="field">{t('Amount in {symbol}', { symbol: token?.symbol ?? selected.symbol })}<input name="amount" inputMode="decimal" autoComplete="off" autoCorrect="off" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.target.value)} maxLength={36} required /></label>
   </TransactionDialog>
 }
 
-const swapAssets = crossNetworks.flatMap((id) => [id as string, ...tokens.filter((token) => token.network === id).map((token) => token.id)])
+const swapAssets = crossNetworks.flatMap((id) => [id as string, ...tokens.filter((token) => token.network === id && !unswappable.has(token.id)).map((token) => token.id)])
 
 function SwapAssetField({ label, value, change }: { label: string; value: string; change: (asset: string) => void }) {
-  return <div className="field"><span>{label}</span>
-    <Picker label={label} value={value} onChange={change} options={swapAssets.map((id) => {
+  return <div className="field"><span>{t(label)}</span>
+    <Picker label={t(label)} value={value} onChange={change} options={swapAssets.map((id) => {
       const token = tokenById(id)
       const network = mainnets[(token?.network ?? id) as NetworkId]
       return { value: id, label: token?.symbol ?? network.symbol, sub: token ? `${token.name} · ${network.name}` : network.name, icon: token ? <TokenIcon token={token} /> : <Coin chain={network.chain} /> }
@@ -111,11 +126,11 @@ export function Swap({ quote, from, ...actions }: TransactionActions & {
   return <TransactionDialog {...actions} title="Swap" prepare={(signal) => quote(sell, buy, amount, signal, slippage)}>
     <SwapAssetField label="You pay" value={sell} change={(next) => { if (next === buy) setBuy(sell); setSell(next) }} />
     <SwapAssetField label="You receive" value={buy} change={(next) => { if (next === sell) setSell(buy); setBuy(next) }} />
-    <label className="field">Amount in {tokenById(sell)?.symbol ?? mainnets[sell as NetworkId].symbol}<input name="amount" inputMode="decimal" autoComplete="off" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.target.value)} maxLength={36} required /></label>
-    <div className="field"><span>Max slippage</span>
-      <Picker label="Max slippage" value={slippage} onChange={setSlippage} options={[0, 50, 100, 200, 300].map((value) => ({ value, label: value ? `${value / 100}%` : 'Auto', sub: !value ? 'Recommended, picked for each swap' : value < 100 ? 'May fail when prices move' : value > 100 ? 'Fills more often, can cost more' : 'Standard' }))} />
+    <label className="field">{t('Amount in {symbol}', { symbol: tokenById(sell)?.symbol ?? mainnets[sell as NetworkId].symbol })}<input name="amount" inputMode="decimal" autoComplete="off" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.target.value)} maxLength={36} required /></label>
+    <div className="field"><span>{t('Max slippage')}</span>
+      <Picker label={t('Max slippage')} value={slippage} onChange={setSlippage} options={[0, 50, 100, 200, 300].map((value) => ({ value, label: value ? `${value / 100}%` : t('Auto'), sub: !value ? t('Recommended, picked for each swap') : value < 100 ? t('May fail when prices move') : value > 100 ? t('Fills more often, can cost more') : t('Standard') }))} />
     </div>
-    <Glide><p key={String(uniswap)} className="field-note">{uniswap ? 'Swaps on the same network use Uniswap v2. Liquidity varies by pair and amount.' : 'Swaps between networks use NEAR Intents. The new coins land in this wallet, usually within a few minutes.'}</p></Glide>
+    <Glide><p key={String(uniswap)} className="field-note">{uniswap ? t('Swaps on the same network use Uniswap v2. Liquidity varies by pair and amount.') : t('Swaps between networks use NEAR Intents. The new coins land in this wallet, usually within a few minutes.')}</p></Glide>
   </TransactionDialog>
 }
 
@@ -128,28 +143,29 @@ export function Scramble({ networks, initial, initialAsset, close }: { networks:
   const [level, setLevel] = useState('balanced')
   const [tried, setTried] = useState(0)
   const symbol = tokenById(asset)?.symbol ?? network.symbol
-  return <Dialog title="Scramble" close={close}>
+  return <Dialog title={t('Scramble')} close={close}>
     <form className="form" onSubmit={(event) => { event.preventDefault(); setTried((value) => value + 1) }}>
-      <p className="dialog-intro">Move tokens to a brand-new wallet through a mix, so the new wallet can't be linked to this one.</p>
+      <p className="dialog-intro">{t('Move tokens to a brand-new wallet through a mix, so the new wallet can’t be linked to this one.')}</p>
       <NetworkField networks={networks} selected={network} change={(next) => { setNetwork(next); setAsset(next.id) }} />
       <AssetField network={network} label="Token" value={asset} change={setAsset} />
-      <label className="field">Amount in {symbol}<input name="amount" inputMode="decimal" autoComplete="off" autoCorrect="off" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.target.value)} maxLength={36} /></label>
-      <div className="field"><span>Privacy</span>
-        <Picker label="Privacy" value={level} onChange={setLevel} options={[
-          { value: 'fast', label: 'Fast', sub: 'Fewer hops, done in minutes' },
-          { value: 'balanced', label: 'Balanced', sub: 'Recommended' },
-          { value: 'max', label: 'Maximum', sub: 'More hops spread over hours' },
+      <label className="field">{t('Amount in {symbol}', { symbol })}<input name="amount" inputMode="decimal" autoComplete="off" autoCorrect="off" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.target.value)} maxLength={36} /></label>
+      <div className="field"><span>{t('Privacy')}</span>
+        <Picker label={t('Privacy')} value={level} onChange={setLevel} options={[
+          { value: 'fast', label: t('Fast'), sub: t('Fewer hops, done in minutes') },
+          { value: 'balanced', label: t('Balanced'), sub: t('Recommended') },
+          { value: 'max', label: t('Maximum'), sub: t('More hops spread over hours') },
         ]} />
       </div>
-      <div className="field"><span>Goes to</span><div className="scramble-target">A new wallet, created on this device</div></div>
-      <Slot open={tried > 0}><Notice key={tried}>Scramble is still being built. Nothing was sent.</Notice></Slot>
-      <button className="button primary wide" type="submit">Scramble {symbol}</button>
+      <div className="field"><span>{t('Goes to')}</span><div className="scramble-target">{t('A new wallet, created on this device')}</div></div>
+      <Slot open={tried > 0}><Notice key={tried}>{t('Scramble is still being built. Nothing was sent.')}</Notice></Slot>
+      <button className="button primary wide" type="submit">{t('Scramble {symbol}', { symbol })}</button>
     </form>
   </Dialog>
 }
 
-function TransactionDialog({ title, close, prepare, submit, finished, children }: TransactionActions & {
+function TransactionDialog({ title, close, prepare, submit, finished, contactName, after, children }: TransactionActions & {
   title: 'Send' | 'Swap'; prepare: (signal: AbortSignal) => Promise<Quote>; children: ReactNode
+  contactName?: (address: string) => string | undefined; after?: (item: ActivityItem) => ReactNode
 }) {
   const [review, setReview] = useState<Quote>()
   const [item, setItem] = useState<ActivityItem>()
@@ -194,43 +210,44 @@ function TransactionDialog({ title, close, prepare, submit, finished, children }
     } finally { setBusy(false) }
   }
 
-  if (item) return <Dialog title={item.status === 'submitted' ? 'Transaction submitted' : 'Submission unverified'} close={close}>
+  if (item) return <Dialog title={item.status === 'submitted' ? t('Transaction submitted') : t('Submission unverified')} close={close}>
     <div className="form">
       <span className="empty-icon">{item.status === 'submitted' ? <Check size={25} /> : <ShieldAlert size={25} />}</span>
-      <p className="dialog-intro">{item.status === 'submitted' ? item.kind === 'approval' ? 'Wait for confirmation, then review the swap again.' : 'The RPC accepted the transaction. Check Activity for confirmation.' : 'Submission is unverified. Check Activity before trying again.'}</p>
-      <a className="text-link" href={explorerUrl(mainnets[item.network], 'tx', item.hash)} target="_blank" rel="noreferrer">Open transaction in explorer <ExternalLink size={15} /></a>
-      {item.kind === 'approval' && <button className="button secondary wide" onClick={() => { setItem(undefined); edit() }}>Return to swap</button>}
-      <button className="button primary wide" onClick={finished}>View activity <ArrowRight size={17} /></button>
+      <p className="dialog-intro">{item.status === 'submitted' ? item.kind === 'approval' ? t('Wait for confirmation, then review the swap again.') : t('The RPC accepted the transaction. Check Activity for confirmation.') : t('Submission is unverified. Check Activity before trying again.')}</p>
+      <a className="text-link" href={explorerUrl(mainnets[item.network], 'tx', item.hash)} target="_blank" rel="noreferrer">{t('Open transaction in explorer')} <ExternalLink size={15} /></a>
+      {after?.(item)}
+      {item.kind === 'approval' && <button className="button secondary wide" onClick={() => { setItem(undefined); edit() }}>{t('Return to swap')}</button>}
+      <button className="button primary wide" onClick={finished}>{t('View activity')} <ArrowRight size={17} /></button>
     </div>
   </Dialog>
 
   const approval = review?.kind === 'approval'
   const swapping = review?.kind === 'swap'
   const symbol = review && (tokenById(review.asset ?? '')?.symbol ?? review.network.symbol)
-  return <Dialog title={review ? approval ? 'Review token permission' : swapping ? 'Review swap' : 'Review transaction' : title} close={close} busy={busy}>
+  return <Dialog title={review ? approval ? t('Review token permission') : swapping ? t('Review swap') : t('Review transaction') : t(title)} close={close} busy={busy}>
     {review ? <div className="form">
       <dl className="review-list">
-        <div><dt>Network</dt><dd>{review.network.name} · {review.network.label}</dd></div>
-        <div><dt>{review.via ?? (approval || swapping ? 'Uniswap v2 router' : 'Recipient')}</dt><dd className="mono">{review.to}</dd></div>
-        {review.destinationTag !== undefined && <div><dt>Destination tag</dt><dd>{review.destinationTag}</dd></div>}
-        <div><dt>{approval ? 'Spending limit' : swapping ? 'You pay' : 'Amount'}</dt><dd>{review.value} {symbol}</dd></div>
+        <div><dt>{t('Network')}</dt><dd>{review.network.name} · {review.network.label}</dd></div>
+        <div><dt>{review.via ? t(review.via) : approval || swapping ? t('Uniswap v2 router') : t('Recipient')}</dt><dd className="mono">{!approval && !swapping && contactName?.(review.to) && <strong className="review-contact">{contactName(review.to)}</strong>}{review.to}</dd></div>
+        {review.destinationTag !== undefined && <div><dt>{t('Destination tag')}</dt><dd>{review.destinationTag}</dd></div>}
+        <div><dt>{approval ? t('Spending limit') : swapping ? t('You pay') : t('Amount')}</dt><dd>{review.value} {symbol}</dd></div>
         {review.receive && <>
-          <div><dt>Estimated receive</dt><dd>{review.receive.amount} {review.receive.symbol}{review.receive.network ? ` on ${review.receive.network}` : ''}</dd></div>
-          <div><dt>Minimum receive ({review.receive.auto ? 'Auto ' : ''}{(review.receive.slippage ?? 100) / 100}% slippage)</dt><dd>{review.receive.minimum} {review.receive.symbol}</dd></div>
+          <div><dt>{t('Estimated receive')}</dt><dd>{review.receive.amount} {review.receive.symbol}{review.receive.network ? ` · ${review.receive.network}` : ''}</dd></div>
+          <div><dt>{t('Minimum receive ({slippage} slippage)', { slippage: `${review.receive.auto ? t('Auto') + ' ' : ''}${(review.receive.slippage ?? 100) / 100}%` })}</dt><dd>{review.receive.minimum} {review.receive.symbol}</dd></div>
         </>}
-        <div><dt>Network fee estimate</dt><dd>{review.fee} {review.network.symbol}</dd></div>
-        {review.rent && <div><dt>Recipient token account rent</dt><dd>{review.rent} SOL</dd></div>}
-        {review.eta !== undefined && <div><dt>Arrives in about</dt><dd>{review.eta < 90 ? '1 minute' : `${Math.round(review.eta / 60)} minutes`}</dd></div>}
+        <div><dt>{t('Network fee estimate')}</dt><dd>{review.fee} {review.network.symbol}</dd></div>
+        {review.rent && <div><dt>{t('Recipient token account rent')}</dt><dd>{review.rent} SOL</dd></div>}
+        {review.eta !== undefined && <div><dt>{t('Arrives in about')}</dt><dd>{review.eta < 90 ? t('1 minute') : t('{count} minutes', { count: Math.round(review.eta / 60) })}</dd></div>}
       </dl>
-      <Notice>{approval ? review.value === '0' ? 'This clears the router’s current allowance. Confirm it before granting a new one.' : 'This lets Uniswap spend the amount shown. The swap requires a separate confirmation.' : swapping ? review.via ? 'Your coins go to a one-time deposit address and the swapped coins come back to this wallet. If the swap can’t fill at the minimum, it refunds to this wallet.' : 'The swap returns assets to this wallet. If the price falls below the minimum or the quote expires on-chain, the swap can fail and still cost gas.' : 'This is a mainnet transfer. Check the full address and network. Broadcast transfers cannot be recalled.'}</Notice>
-      {(review.receive?.impact ?? 0) >= .03 && <Notice error>Big price hit: you get about {Math.round(review.receive!.impact! * 100)}% less than the current price. Try a smaller amount.</Notice>}
+      <Notice>{approval ? review.value === '0' ? t('This clears the router’s current allowance. Confirm it before granting a new one.') : t('This lets Uniswap spend the amount shown. The swap requires a separate confirmation.') : swapping ? review.via ? t('Your coins go to a one-time deposit address and the swapped coins come back to this wallet. If the swap can’t fill at the minimum, it refunds to this wallet.') : t('The swap returns assets to this wallet. If the price falls below the minimum or the quote expires on-chain, the swap can fail and still cost gas.') : t('This is a mainnet transfer. Check the full address and network. Broadcast transfers cannot be recalled.')}</Notice>
+      {(review.receive?.impact ?? 0) >= .03 && <Notice error>{t('Big price hit: you get about {percent}% less than the current price. Try a smaller amount.', { percent: Math.round(review.receive!.impact! * 100) })}</Notice>}
       <ErrorSlot error={error} />
-      <button className="button primary wide" onClick={() => void confirm()} disabled={busy}>{busy ? 'Submitting transaction…' : approval ? review.value === '0' ? 'Clear allowance' : 'Approve spending' : swapping ? 'Sign and swap' : 'Sign and send'}</button>
-      <button className="button text-button wide" onClick={edit} disabled={busy}><ArrowLeft size={16} /> Edit {title === 'Swap' ? 'swap' : 'transfer'}</button>
+      <button className="button primary wide" onClick={() => void confirm()} disabled={busy}>{busy ? t('Submitting transaction…') : approval ? review.value === '0' ? t('Clear allowance') : t('Approve spending') : swapping ? t('Sign and swap') : t('Sign and send')}</button>
+      <button className="button text-button wide" onClick={edit} disabled={busy}><ArrowLeft size={16} /> {title === 'Swap' ? t('Edit swap') : t('Edit transfer')}</button>
     </div> : <form className="form" onSubmit={reviewTransfer}>
       <fieldset className="form" disabled={busy}>{children}</fieldset>
       <ErrorSlot error={error} />
-      <button className="button primary wide" type="submit" disabled={busy}>{busy ? 'Getting quote…' : title === 'Swap' ? 'Review swap' : 'Review transaction'} <ArrowRight size={17} /></button>
+      <button className="button primary wide" type="submit" disabled={busy}>{busy ? t('Getting quote…') : title === 'Swap' ? t('Review swap') : t('Review transaction')} <ArrowRight size={17} /></button>
     </form>}
   </Dialog>
 }
@@ -238,19 +255,19 @@ function TransactionDialog({ title, close, prepare, submit, finished, children }
 export function AssetDetails({ network, token, amount, noWallet, close, send, receive, swap, scramble }: {
   network: Network; token?: Token; amount?: string; noWallet: boolean; close: () => void; send: (id: NetworkId) => void; receive: (id: NetworkId) => void; swap: () => void; scramble: () => void
 }) {
-  return <Dialog title={token ? `${token.symbol} on ${network.name}` : network.name} close={close}>
+  return <Dialog title={token ? t('{symbol} on {network}', { symbol: token.symbol, network: network.name }) : network.name} close={close}>
     <div className="asset-detail">
       {token ? <TokenIcon token={token} /> : <Coin chain={network.chain} />}
       <strong>{amount ?? `0 ${token?.symbol ?? network.symbol}`}</strong>
-      <p>{token ? `${token.name} · ${network.name} ${network.label}` : `${network.name} ${network.label} · native ${network.symbol}`}</p>
+      <p>{token ? `${token.name} · ${network.name} ${network.label}` : `${network.name} ${network.label} · ${t('native {symbol}', { symbol: network.symbol })}`}</p>
     </div>
     <div className="actions actions--sheet">
-      <button className="action" onClick={() => afterTap(() => receive(network.id))}><span><QrCode size={22} /></span>Receive</button>
-      <button className="action" onClick={() => afterTap(() => send(network.id))}><span><ArrowUp size={22} /></span>Send</button>
-      <button className="action" onClick={() => afterTap(swap)}><span><Shuffle size={22} /></span>Swap</button>
+      <button className="action" onClick={() => afterTap(() => receive(network.id))}><span><QrCode size={22} /></span>{t('Receive')}</button>
+      <button className="action" onClick={() => afterTap(() => send(network.id))}><span><ArrowUp size={22} /></span>{t('Send')}</button>
+      <button className="action" onClick={() => afterTap(swap)}><span><Shuffle size={22} /></span>{t('Swap')}</button>
       {/* Placeholder: moves funds to a fresh wallet through a mixer later. For now it only opens a WIP sheet. */}
-      <button className="action" onClick={() => afterTap(scramble)}><span><Box size={22} /></span>Scramble</button>
+      <button className="action" onClick={() => afterTap(scramble)}><span><Box size={22} /></span>{t('Scramble')}</button>
     </div>
-    <p className="field-note center">{noWallet ? 'Set up a wallet to send and receive on this network.' : `Only use ${network.name} ${network.label} addresses with this asset.`}</p>
+    <p className="field-note center">{noWallet ? t('Set up a wallet to send and receive on this network.') : t('Only use {network} addresses with this asset.', { network: `${network.name} ${network.label}` })}</p>
   </Dialog>
 }

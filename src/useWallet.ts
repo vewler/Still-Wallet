@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { activeNetworks, defaultEndpoint, networks, type Network, type NetworkId } from './networks'
-import { tokensFor } from './tokens'
+import { activeNetworks, defaultEndpoint, networks, tokenExplorers, type Network, type NetworkId } from './networks'
+import { contractKey, setUserTokens, tokens, tokensFor, userTokenId, type UserToken } from './tokens'
 import { defaultLayout, type AssetLayout } from './assets'
-import { VAULT_KEY, activitySaved, forgetActivity, loadActivity, readActivity, readAssetLayout, saveAssetLayout, savedVaultId, saveAccounts, saveWalletEmoji, saveWalletName, walletEmoji, walletIds, walletName, readPreferences, saveActivity, savePreferences, type ActivityItem, type Preferences } from './storage'
+import { VAULT_KEY, activitySaved, forgetActivity, loadActivity, readActivity, readAssetLayout, readUserTokens, saveAssetLayout, saveUserTokens, savedVaultId, saveAccounts, saveWalletEmoji, saveWalletName, walletEmoji, walletIds, walletName, readPreferences, saveActivity, savePreferences, forgetContacts, loadContacts, saveContacts, type ActivityItem, type Contact, type Preferences } from './storage'
 import type { Session } from './vault'
 import type { Prices, Quote } from './rpc'
 import type { Balance } from './components/Overview'
+import { t } from './i18n'
 
 const PRICE_CACHE = 'still.prices.v1'
 function readPriceCache(currency: string): { prices: Prices; changes: Prices } {
@@ -37,6 +38,9 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
   const [prices, setPrices] = useState<Prices>(() => readPriceCache(readPreferences().currency).prices)
   const [changes, setChanges] = useState<Prices>(() => readPriceCache(readPreferences().currency).changes)
   const [tokenBalances, setTokenBalances] = useState<Record<string, Balance>>({})
+  const [userTokens, setUserTokenState] = useState<UserToken[]>([])
+  const [contacts, setContacts] = useState<Contact[]>([])
+  const lastDiscovery = useRef(new Map<string, number>())
   const active = useRef<Session | undefined>(undefined)
   const preloaded = useRef<Session | undefined>(undefined)
   const currentPreferences = useRef(preferences)
@@ -55,10 +59,13 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
     if (moneroUsed) void import('./moneroWallet').then((monero) => monero.closeMonero())
     active.current = undefined
     forgetActivity()
+    forgetContacts()
+    setContacts([])
     resetRequests()
     setSession(undefined)
     setBalances({})
     setTokenBalances({})
+    applyTokens([])
     setItems([])
     close()
   }, [close, resetRequests])
@@ -113,6 +120,7 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
     resetRequests()
     setBalances({})
     setTokenBalances({})
+    applyTokens(readUserTokens(value.id))
     if (currentPreferences.current.offline) return
     preloaded.current = value
     await Promise.race([refresh('balances', true), new Promise((done) => setTimeout(done, 8000))])
@@ -127,7 +135,9 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
     setSession(value)
     setName(walletName(value.id))
     setItems([])
+    applyTokens(readUserTokens(value.id))
     void loadActivity(value.id, value.activityKey).then((items) => { if (active.current === value) setItems(items) }, () => {})
+    void loadContacts(value.vault, value.activityKey).then((items) => { if (active.current === value) setContacts(items) }, () => {})
     setLayout(readAssetLayout(value.id, defaultLayout))
     loadWallets(value.vault)
     if (ready) return
@@ -143,6 +153,72 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
     if (next.shown.includes(monero) && !layout.shown.includes(monero) && wallet && !currentPreferences.current.offline) loadMonero(wallet, connection.current?.signal)
     setLayout(next)
     if (wallet) try { saveAssetLayout(wallet.id, next) } catch { notify('This browser could not save your token list.') }
+  }
+
+  /** This wallet's imported and found tokens join the asset list. */
+  function applyTokens(list: UserToken[]) {
+    setUserTokens(list)
+    setUserTokenState(list)
+  }
+
+  /** Add tokens to this wallet and show them on Home. */
+  function addTokens(wallet: Session, added: UserToken[]) {
+    const same = (a: UserToken, b: UserToken) => a.network === b.network && contractKey(a.network, a.contract) === contractKey(b.network, b.contract)
+    const next = [...readUserTokens(wallet.id).filter((entry) => !added.some((token) => same(entry, token))), ...added]
+    saveUserTokens(wallet.id, next)
+    applyTokens(next)
+    const ids = added.map((token) => userTokenId(token.network, token.contract))
+    const current = readAssetLayout(wallet.id, defaultLayout)
+    const shown = [...current.shown.filter((id) => !ids.includes(id)), ...ids]
+    const nextLayout = { order: [...shown, ...current.order.filter((id) => !shown.includes(id))], shown }
+    setLayout(nextLayout)
+    saveAssetLayout(wallet.id, nextLayout)
+  }
+
+  /** Paste-an-address import from Manage. */
+  function importToken(token: UserToken) {
+    const wallet = active.current
+    if (!wallet) return false
+    try { addTokens(wallet, [token]) } catch { notify('This browser could not save the token.'); return false }
+    void loadPrices(currentPreferences.current.currency)
+    void refresh('balances', true)
+    return true
+  }
+
+  /** Imported tokens can be removed again, built-in ones only hidden. */
+  function removeToken(id: string) {
+    const wallet = active.current
+    if (!wallet) return
+    const next = readUserTokens(wallet.id).filter((token) => userTokenId(token.network, token.contract) !== id)
+    try { saveUserTokens(wallet.id, next) } catch { notify('This browser could not save your token list.'); return }
+    applyTokens(next)
+    const current = readAssetLayout(wallet.id, defaultLayout)
+    const nextLayout = { order: current.order.filter((entry) => entry !== id), shown: current.shown.filter((entry) => entry !== id) }
+    setLayout(nextLayout)
+    try { saveAssetLayout(wallet.id, nextLayout) } catch { /* Gone from the list anyway. */ }
+  }
+
+  /** Look for tokens the wallet holds that Still doesn't list yet. At most every 10 min per wallet. */
+  async function discover(wallet: Session, signal: AbortSignal) {
+    const prefs = currentPreferences.current
+    if (Date.now() - (lastDiscovery.current.get(wallet.id) ?? 0) < 10 * 60_000) return
+    lastDiscovery.current.set(wallet.id, Date.now())
+    try {
+      const { discoverTokens } = await import('./discover')
+      const list = activeNetworks(prefs.environment).filter((network) => network.chain === 'solana' || tokenExplorers[network.id])
+      const results = await Promise.allSettled(list.map((network) => discoverTokens(network, prefs.rpc[network.id] ?? defaultEndpoint(network), wallet.addresses, signal)))
+      if (signal.aborted || active.current !== wallet) { lastDiscovery.current.delete(wallet.id); return }
+      // A failed network gets another look on the next refresh.
+      if (results.some((entry) => entry.status === 'rejected')) lastDiscovery.current.set(wallet.id, Date.now() - 8 * 60_000)
+      const saved = readUserTokens(wallet.id)
+      const found = results.flatMap((entry) => entry.status === 'fulfilled' ? entry.value : [])
+        .filter(({ token }) => !saved.some((entry) => entry.network === token.network && contractKey(token.network, entry.contract) === contractKey(token.network, token.contract)))
+      if (!found.length) return
+      addTokens(wallet, found.map((entry) => entry.token))
+      setTokenBalances((current) => ({ ...current, ...Object.fromEntries(found.map(({ token, amount }) => [userTokenId(token.network, token.contract), { amount }])) }))
+      void loadPrices(prefs.currency)
+      notify(found.length === 1 ? t('Found {symbol} in your wallet', { symbol: found[0].token.symbol }) : t('Found {count} tokens in your wallet', { count: found.length }))
+    } catch { /* Discovery is best effort. */ }
   }
 
   /** XMR scans separately (and only while shown), it can take much longer than the other balances. */
@@ -253,6 +329,7 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
         const failed = [...result, ...tokenResult].some((entry) => entry.status === 'rejected')
         // Background loads stay silent. Coins that failed show as unavailable.
         if (!quiet) notify(failed ? 'Some RPCs could not load balances.' : 'Balances refreshed')
+        if (prefs.environment === 'main') void discover(wallet, request.signal)
       } else {
         const pending = readActivity(wallet.id).filter((item) => item.status === 'submitted' || item.status === 'unknown').slice(0, 30)
         const result = await Promise.allSettled(pending.map((item) => {
@@ -277,7 +354,11 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
   async function loadPrices(currency: string) {
     try {
       const signal = connection.current?.signal ?? new AbortController().signal
-      const next = await (await import('./rpc')).getPrices(currency, signal)
+      const [base, extra] = await Promise.all([
+        (await import('./rpc')).getPrices(currency, signal),
+        tokens.some((token) => token.user) ? (await import('./discover')).userTokenPrices(tokens, currency, signal) : { prices: {}, changes: {} },
+      ])
+      const next = { prices: { ...base.prices, ...extra.prices }, changes: { ...base.changes, ...extra.changes } }
       if (!signal.aborted && currentPreferences.current.currency === currency) {
         setPrices(next.prices)
         setChanges(next.changes)
@@ -327,6 +408,20 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
       swap.quoteCrossSwap(wallet.addresses, sell, buy, amount, request, slippage, (network, to, value, asset, tag) => prepare(network, to, value, request, asset, tag)))
   }
 
+  /** Transactions from connected apps (WalletConnect). */
+  function prepareDapp(network: Network, from: string, call: { to?: string; value?: string; data?: `0x${string}` }, app: string, signal: AbortSignal) {
+    return prepareQuote(network, signal, async (endpoint, _wallet, request) => (await import('./rpc')).quoteDapp(network, endpoint, from, call, app, request))
+  }
+
+  /** Signing for connected apps, with the RPC the user picked. */
+  async function withEndpoint<T>(network: Network, signal: AbortSignal, task: (endpoint: string, wallet: Session, signal: AbortSignal) => Promise<T>) {
+    const wallet = active.current
+    const prefs = currentPreferences.current
+    const connectionSignal = connection.current?.signal
+    if (!wallet || !connectionSignal || prefs.offline) throw new Error('Open your wallet and enable network requests first.')
+    return task(prefs.rpc[network.id] ?? defaultEndpoint(network), wallet, AbortSignal.any([signal, connectionSignal]))
+  }
+
   async function submit(quote: Quote) {
     const wallet = active.current
     const signal = connection.current?.signal
@@ -355,8 +450,8 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
       signal.throwIfAborted()
       const item: ActivityItem = {
         hash: signed.hash, to: quote.to, value: quote.value, network: quote.network.id, created: Date.now(), status: 'unknown',
-        lastValidBlockHeight: signed.lastValidBlockHeight, lastLedgerSequence: signed.lastLedgerSequence,
-        asset: quote.asset, destinationTag: quote.destinationTag, kind: quote.kind, receive: quote.receive,
+        lastValidBlockHeight: signed.lastValidBlockHeight, lastLedgerSequence: signed.lastLedgerSequence, from: signed.from,
+        asset: quote.asset, destinationTag: quote.destinationTag, kind: quote.kind, receive: quote.receive, app: quote.app,
       }
       // Save the tx id before broadcasting so a timeout can be recovered.
       const pending = saveActivity(wallet.id, item)
@@ -390,10 +485,21 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
     setPreferences(currentPreferences.current)
   }
 
+  /** Add, change or remove (null) a contact. Returns false if the browser could not save it. */
+  async function editContact(contact: Contact, remove = false) {
+    const wallet = active.current
+    if (!wallet) return false
+    const next = remove ? contacts.filter((entry) => entry.id !== contact.id)
+      : contacts.some((entry) => entry.id === contact.id) ? contacts.map((entry) => entry.id === contact.id ? contact : entry) : [...contacts, contact]
+    try { setContacts([...await saveContacts(wallet.vault, next)]) } catch { notify('This browser could not save your contacts.'); return false }
+    return true
+  }
+
   return {
-    preferences, balances, tokenBalances, layout, arrange, items, refreshing, session, name, wallets, prices, changes,
+    contacts, editContact,
+    preferences, balances, tokenBalances, layout, arrange, userTokens, importToken, removeToken, items, refreshing, session, name, wallets, prices, changes,
     emoji: wallets.find((entry) => entry.id === session?.id)?.emoji,
     mode: session ? 'wallet' as const : saved ? 'locked' as const : 'none' as const,
-    lock, start, preload, update, refresh, prepare, prepareSwap, prepareAnySwap, submit, removed, rename, setEmoji, switchWallet, addWallet,
+    lock, start, preload, update, refresh, prepare, prepareSwap, prepareAnySwap, prepareDapp, withEndpoint, submit, removed, rename, setEmoji, switchWallet, addWallet,
   }
 }

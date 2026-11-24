@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type RefObject } from 'react'
-import { Activity, ArrowLeft, ExternalLink, Info, ChartLine, ArrowRight, Check, ChevronDown, Download, Eye, EyeOff, House, Layers3, LoaderCircle, LockKeyhole, Pencil, Plus, Settings, ShieldAlert, WifiOff } from 'lucide-react'
+import { Activity, ArrowLeft, ExternalLink, Info, ChartLine, ArrowRight, Check, ChevronDown, Download, Eye, EyeOff, House, Layers3, LoaderCircle, LockKeyhole, Pencil, Plus, ScanFace, Settings, ShieldAlert, WifiOff, X } from 'lucide-react'
 import { Brand } from './components/Icons'
+import { passwordRules } from './passwords'
 import { registerSW } from 'virtual:pwa-register'
-import { activeNetworks, formatAmount, networks, type NetworkId } from './networks'
+import { activeNetworks, defaultEndpoint, formatAmount, networks, type NetworkId } from './networks'
 import { tokenById } from './tokens'
-import { failedUnlocks, forgetVault, maxUnlockAttempts, normalizeWalletName, saveFailedUnlocks, savedVaultId, emojiCategories } from './storage'
+import { failedUnlocks, forgetVault, maxUnlockAttempts, normalizeWalletName, saveFailedUnlocks, savedVaultId } from './storage'
+import { EmojiPicker } from './components/EmojiPicker'
+import { Contacts } from './components/Contacts'
 import type { Session } from './vault'
+import { disablePasskey, enablePasskey, passkeyDevice, passkeyOn, unlockWithPasskey, type PasskeySetup } from './passkey'
 import { Overview } from './components/Overview'
 import { ActivityPage, NetworksPage, RpcDialog, SettingsPage } from './components/Pages'
 import { ChartsPage, prefetchCharts } from './components/Charts'
@@ -17,10 +21,13 @@ import { CreditsPage, ErrorPage, FaqPage, PrivacyPolicy } from './components/Pri
 import { Dialog, ErrorSlot, Notice, PasswordInput } from './components/Dialog'
 import { useWallet } from './useWallet'
 import { PullRefresh } from './components/PullRefresh'
+import { ConnectedApps, DappPrompts, useDapps } from './components/Dapps'
 
 // Sheets are tiny, so bundle them up front. No loader flash on open.
 import { Access } from './components/Access'
+import { RecoveryPhrase } from './components/RecoveryPhrase'
 import { AssetDetails, Receive, Scramble, Send, Swap } from './components/Transfer'
+import { t, useLanguage } from './i18n'
 
 const navigation = [
   { id: 'overview', label: 'Home', icon: House },
@@ -31,7 +38,7 @@ const navigation = [
 ] as const
 const tabs: string[] = navigation.filter(({ id }) => id !== 'networks').map(({ id }) => id)
 
-type Route = typeof navigation[number]['id'] | 'home' | 'about' | 'privacy' | 'credits' | 'faq' | 'notfound'
+type Route = typeof navigation[number]['id'] | 'home' | 'landing' | 'about' | 'privacy' | 'credits' | 'faq' | 'notfound'
 const sheetKeys = new WeakMap<object, number>()
 let sheetCount = 0
 const sheetKey = (modal: object) => { if (!sheetKeys.has(modal)) sheetKeys.set(modal, ++sheetCount); return sheetKeys.get(modal)! }
@@ -42,22 +49,26 @@ type Modal =
   | { type: 'rpc'; network: NetworkId }
   | { type: 'swap'; network?: NetworkId; token?: string }
   | { type: 'scramble'; network: NetworkId; token?: string }
-  | { type: 'manage' | 'credits' | 'protect' | 'remove' | 'offline' | 'rename' | 'wallets' }
+  | { type: 'manage' | 'credits' | 'protect' | 'remove' | 'offline' | 'rename' | 'wallets' | 'contacts' | 'passkey' | 'password' | 'phrase' }
   | { type: 'leave'; to: 'about' | 'discord' }
+  | { type: 'dapps'; link?: string }
 
 
-// Clean paths (/activity). Old #links get rewritten on load.
+// Clean paths (/activity). Old #links get rewritten on load. / is always the landing page, the wallet lives at /wallet.
 const pages = ['about', 'privacy', 'credits', 'faq']
 const isRoute = (name: string) => pages.includes(name) || navigation.some(({ id }) => id === name)
+const pathOf = (name: string) => name === '' ? '/' : name === 'overview' ? '/wallet' : `/${name}`
 function currentRoute(): Route {
-  const name = location.pathname.slice(1)
+  const name = location.pathname.slice(1).replace(/\/+$/, '')
   if (name === 'about' || name === 'privacy' || name === 'credits' || name === 'faq') return name
-  return navigation.find(({ id }) => id === name)?.id ?? (name === '' || name === 'index.html' ? 'home' : 'notfound')
+  if (name === '' || name === 'index.html') return 'landing'
+  if (name === 'wallet') return 'home'
+  return navigation.find(({ id }) => id === name && id !== 'overview')?.id ?? 'notfound'
 }
 // Per-page title, description and canonical for search. Home keeps what index.html ships.
 const homeMeta = { title: document.title, description: document.querySelector('meta[name="description"]')?.getAttribute('content') ?? '' }
 const pageMeta: Partial<Record<Route, { title: string; description: string; path: string }>> = {
-  home: { ...homeMeta, path: '/' },
+  landing: { ...homeMeta, path: '/' },
   about: { ...homeMeta, path: '/' },
   privacy: { title: 'Privacy Policy · Still Wallet', description: 'Still Wallet has no sign-up, analytics or trackers. Your wallet data stays on your device.', path: '/privacy' },
   credits: { title: 'Credits · Still Wallet', description: 'The people and open-source projects behind Still Wallet.', path: '/credits' },
@@ -65,8 +76,8 @@ const pageMeta: Partial<Record<Route, { title: string; description: string; path
 }
 function applyMeta(route: Route) {
   const meta = pageMeta[route]
-  document.title = meta?.title ?? homeMeta.title
-  document.querySelector('meta[name="description"]')?.setAttribute('content', meta?.description ?? homeMeta.description)
+  document.title = meta ? t(meta.title) : homeMeta.title
+  document.querySelector('meta[name="description"]')?.setAttribute('content', meta ? t(meta.description) : homeMeta.description)
   document.querySelector('link[rel="canonical"]')?.setAttribute('href', `https://stillwallet.net${meta?.path ?? '/'}`)
   // Wallet screens are not for search results.
   let robots = document.querySelector<HTMLMetaElement>('meta[name="robots"]')
@@ -75,15 +86,31 @@ function applyMeta(route: Route) {
 }
 function adoptHash() {
   const name = location.hash.slice(1)
-  if (isRoute(name)) history.replaceState(null, '', name === 'overview' ? '/' : `/${name}`)
+  if (isRoute(name)) history.replaceState(null, '', pathOf(name))
 }
 adoptHash()
+// Home screen app opens straight into the wallet, even if it was installed back when / was the wallet.
+const standalone = matchMedia('(display-mode: standalone)').matches || (navigator as { standalone?: boolean }).standalone === true
+if (standalone && location.pathname === '/') history.replaceState(null, '', '/wallet' + location.search)
+// Apps open the wallet with a WalletConnect link (stillwallet.net/wallet?uri=wc:…). Held until unlock, kept out of the address bar.
+let pendingLink = ''
+{
+  const search = new URLSearchParams(location.search)
+  const link = search.get('uri') ?? search.get('wc') ?? ''
+  if (link.startsWith('wc:')) {
+    pendingLink = link
+    search.delete('uri'); search.delete('wc')
+    history.replaceState(null, '', location.pathname + (search.size ? `?${search}` : ''))
+  }
+}
+
 export function go(name: string) {
-  history.pushState(null, '', name === 'overview' ? '/' : `/${name}`)
+  history.pushState(null, '', pathOf(name))
   dispatchEvent(new Event('routechange'))
 }
 
 export default function App() {
+  const language = useLanguage()
   const [route, setRoute] = useState(currentRoute)
   const [modal, setModal] = useState<Modal>()
   const [toast, setToast] = useState('')
@@ -124,6 +151,7 @@ export default function App() {
     toastTimer.current = window.setTimeout(() => setToast(''), 4200)
   }, [])
   const wallet = useWallet(close, notify)
+  const dapps = useDapps(wallet.mode === 'wallet' && !wallet.preferences.offline)
   // A pull-to-refresh only grays the Refresh button (the pull arrow spins). Cleared a bit after loading so the fade back matches.
   const [pulled, setPulled] = useState(false)
   useEffect(() => {
@@ -132,6 +160,8 @@ export default function App() {
     return () => window.clearTimeout(timer)
   }, [wallet.refreshing, pulled])
   const { preferences, mode, session } = wallet
+  const [passkey, setPasskey] = useState(passkeyOn)
+  useEffect(() => { setPasskey(passkeyOn()) }, [mode])
   const displayedNetworks = activeNetworks(preferences.environment)
   // Crossed-out wifi in the header while requests are paused, tap to resume. Kept briefly after so it can fade out.
   const [pauseIcon, setPauseIcon] = useState(preferences.offline)
@@ -140,8 +170,8 @@ export default function App() {
     const timer = window.setTimeout(() => setPauseIcon(false), 200)
     return () => window.clearTimeout(timer)
   }, [preferences.offline])
-  const landing = route === 'about' || (route === 'home' && mode === 'none')
-  useEffect(() => applyMeta(route), [route])
+  const landing = route === 'about' || route === 'landing'
+  useEffect(() => applyMeta(route), [route, language])
   const page = route === 'home' ? 'overview' : route
 
   useEffect(() => {
@@ -155,9 +185,10 @@ export default function App() {
     // In-app #links become path changes.
     const onClick = (event: MouseEvent) => {
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-      const href = (event.target as Element).closest?.('a[href^="#"], a[href="/"]')?.getAttribute('href') ?? ''
-      const name = href === '/' ? 'overview' : href.slice(1)
-      if (!isRoute(name)) return
+      const href = (event.target as Element).closest?.('a[href^="#"], a[href="/"]')?.getAttribute('href')
+      if (!href) return
+      const name = href === '/' ? '' : href.slice(1)
+      if (name && !isRoute(name)) return
       event.preventDefault()
       go(name)
     }
@@ -182,9 +213,7 @@ export default function App() {
   // Back from Privacy/Credits/FAQ restores the scroll position.
   const scrolls = useRef(new Map<string, number>())
   // / and #about share one saved position.
-  const modeNow = useRef(mode)
-  modeNow.current = mode
-  const scrollKey = (value: Route) => value === 'about' || (value === 'home' && modeNow.current === 'none') ? 'landing' : value
+  const scrollKey = (value: Route) => value === 'about' || value === 'landing' ? 'landing' : value
   const shownRoute = useRef(route)
   const restored = useRef(false)
   useLayoutEffect(() => {
@@ -245,7 +274,7 @@ export default function App() {
 
   // Unlock and new wallets always open on Home, not the last page.
   function toHome() {
-    if (location.pathname !== '/') history.replaceState(null, '', '/')
+    if (location.pathname !== '/wallet') history.replaceState(null, '', '/wallet')
     setRoute('home')
     window.scrollTo(0, 0)
   }
@@ -258,6 +287,9 @@ export default function App() {
       if (network && !network.endsWith(`-${preferences.environment}`)) network = `${networks[network].chain}-${preferences.environment}`
       if (modal.intent !== 'receive' && preferences.offline) setModal({ type: 'offline' })
       else setModal(modal.intent === 'swap' ? { type: 'swap', network, token: modal.token } : { type: modal.intent, network, token: modal.token })
+    } else if (pendingLink) {
+      setModal({ type: 'dapps', link: pendingLink })
+      pendingLink = ''
     } else {
       close()
     }
@@ -286,33 +318,33 @@ export default function App() {
 
 
   return <div className="shell">
-    <a href="#main-content" className="skip-link" onClick={(event) => { event.preventDefault(); content.current?.focus() }}>Skip to content</a>
-    {route === 'notfound' ? <ErrorPage mainRef={content} kind="missing" /> : mode === 'none' && route !== 'home' && !landing && !pages.includes(route) ? <ErrorPage mainRef={content} kind="denied" /> : route === 'privacy' ? <PrivacyPolicy mainRef={content} back={mode === 'wallet' ? '#settings' : '/'} /> : route === 'credits' ? <CreditsPage mainRef={content} back={mode === 'wallet' ? '#settings' : '/'} /> : route === 'faq' ? <FaqPage mainRef={content} back={mode === 'wallet' ? '#settings' : '/'} /> : mode === 'locked' ? <LockScreen mainRef={content} protect={preferences.protect} preload={wallet.preload} onSession={start} removed={(message) => { wallet.removed(); notify(message) }} /> : landing ? <Landing mode={mode} mainRef={content} openWallet={openWallet} /> : <div className="app">
+    <a href="#main-content" className="skip-link" onClick={(event) => { event.preventDefault(); content.current?.focus() }}>{t('Skip to content')}</a>
+    {route === 'notfound' ? <ErrorPage mainRef={content} kind="missing" /> : mode === 'none' && route !== 'home' && !landing && !pages.includes(route) ? <ErrorPage mainRef={content} kind="denied" /> : route === 'privacy' ? <PrivacyPolicy mainRef={content} back={mode === 'wallet' ? '#settings' : '/'} /> : route === 'credits' ? <CreditsPage mainRef={content} back={mode === 'wallet' ? '#settings' : '/'} /> : route === 'faq' ? <FaqPage mainRef={content} back={mode === 'wallet' ? '#settings' : '/'} /> : landing ? <Landing mode={mode} mainRef={content} openWallet={openWallet} /> : mode === 'locked' ? <LockScreen mainRef={content} protect={preferences.protect} preload={wallet.preload} onSession={start} removed={(message) => { wallet.removed(); notify(message) }} /> : <div className="app">
       <aside className="sidebar">
-        <a href="#overview" className="sidebar-brand" aria-label="Still home"><Brand /></a>
-        <nav className="side-nav" aria-label="Wallet sections">
-          {navigation.filter(({ id }) => id !== 'settings').map(({ id, label, icon: Icon }) => <a href={`#${id}`} aria-current={page === id ? 'page' : undefined} key={id}><Icon size={20} /><span>{label}</span></a>)}
+        <a href="#overview" className="sidebar-brand" aria-label={t('Still home')}><Brand /></a>
+        <nav className="side-nav" aria-label={t('Wallet sections')}>
+          {navigation.filter(({ id }) => id !== 'settings').map(({ id, label, icon: Icon }) => <a href={`#${id}`} aria-current={page === id ? 'page' : undefined} key={id}><Icon size={20} /><span>{t(label)}</span></a>)}
         </nav>
-        <nav className="side-nav side-nav--bottom" aria-label="Settings">
-          <a href="#settings" aria-current={page === 'settings' ? 'page' : undefined}><Settings size={20} /><span>Settings</span></a>
+        <nav className="side-nav side-nav--bottom" aria-label={t('Settings')}>
+          <a href="#settings" aria-current={page === 'settings' ? 'page' : undefined}><Settings size={20} /><span>{t('Settings')}</span></a>
         </nav>
       </aside>
 
       <div className="app-body">
       <header className="app-header">
-        <button type="button" className="account" onClick={() => setModal({ type: mode === 'wallet' ? 'wallets' : 'access' })} aria-label={mode === 'wallet' ? `${wallet.name}, switch or edit wallets` : 'Set up wallet'}>
+        <button type="button" className="account" onClick={() => setModal({ type: mode === 'wallet' ? 'wallets' : 'access' })} aria-label={mode === 'wallet' ? t('{name}, switch or edit wallets', { name: wallet.name }) : t('Set up wallet')}>
           <span className="avatar">{mode === 'wallet' && wallet.emoji ? <span className="avatar-emoji" aria-hidden="true">{wallet.emoji}</span> : <img src="/icons/brand.svg" alt="" width="20" height="20" />}</span>
-          <span className="account-text"><strong>{mode === 'none' ? 'No wallet' : wallet.name || 'Wallet'}{mode === 'wallet' && <ChevronDown size={14} className="account-edit" />}</strong>{mode === 'none' && <small>Set up to start</small>}</span>
+          <span className="account-text"><strong>{mode === 'none' ? t('No wallet') : wallet.name || t('Wallet')}{mode === 'wallet' && <ChevronDown size={14} className="account-edit" />}</strong>{mode === 'none' && <small>{t('Set up to start')}</small>}</span>
         </button>
         <div className="header-icons">
-          {pauseIcon && <button className={preferences.offline ? 'round-button pause-button' : 'round-button pause-button leaving'} onClick={() => wallet.update({ offline: false })} aria-label="Network requests paused. Tap to turn them back on" disabled={!preferences.offline}><WifiOff size={18} /></button>}
-          <button className="round-button" onClick={() => wallet.update({ hide: !preferences.hide })} aria-label={preferences.hide ? 'Show balances' : 'Hide balances'}><span key={String(preferences.hide)} className="icon-swap">{preferences.hide ? <EyeOff size={19} /> : <Eye size={19} />}</span></button>
+          {pauseIcon && <button className={preferences.offline ? 'round-button pause-button' : 'round-button pause-button leaving'} onClick={() => wallet.update({ offline: false })} aria-label={t('Network requests paused. Tap to turn them back on')} disabled={!preferences.offline}><WifiOff size={18} /></button>}
+          <button className="round-button" onClick={() => wallet.update({ hide: !preferences.hide })} aria-label={preferences.hide ? t('Show balances') : t('Hide balances')}><span key={String(preferences.hide)} className="icon-swap">{preferences.hide ? <EyeOff size={19} /> : <Eye size={19} />}</span></button>
           {mode === 'wallet' ? <button className="round-button lock-button" onClick={(event) => {
             // Let the padlock close first.
             event.currentTarget.classList.add('locking')
             window.setTimeout(lock, 220)
-          }} aria-label="Lock wallet"><LockKeyhole size={18} /></button>
-            : <button className="button primary pill" onClick={() => setModal({ type: 'access' })}>Set up</button>}
+          }} aria-label={t('Lock wallet')}><LockKeyhole size={18} /></button>
+            : <button className="button primary pill" onClick={() => setModal({ type: 'access' })}>{t('Set up')}</button>}
         </div>
       </header>
 
@@ -322,19 +354,23 @@ export default function App() {
         {page === 'activity' && <ActivityPage mode={mode} items={wallet.items} hidden={preferences.hide} canRefresh={mode === 'wallet' && !preferences.offline} refreshing={wallet.refreshing} refresh={() => void wallet.refresh('activity')} />}
         {page === 'networks' && <NetworksPage preferences={preferences} edit={(network) => setModal({ type: 'rpc', network: network.id })} />}
         {page === 'charts' && <ChartsPage preferences={preferences} />}
-        {page === 'settings' && <SettingsPage leave={(to) => setModal({ type: 'leave', to })} name={wallet.name} rename={() => setModal({ type: 'rename' })} preferences={preferences} update={wallet.update} mode={mode} lock={lock} protect={() => preferences.protect ? wallet.update({ protect: false }) && notify('Account protection off') : setModal({ type: 'protect' })} setup={() => setModal({ type: 'access' })} remove={() => setModal({ type: 'remove' })} credits={() => setModal({ type: 'credits' })} />}
+        {page === 'settings' && <SettingsPage phrase={() => setModal({ type: 'phrase' })} contacts={wallet.contacts.length} openContacts={() => setModal({ type: 'contacts' })} leave={(to) => setModal({ type: 'leave', to })} name={wallet.name} rename={() => setModal({ type: 'rename' })} preferences={preferences} update={wallet.update} mode={mode} lock={lock} protect={() => preferences.protect ? wallet.update({ protect: false }) && notify('Account protection off') : setModal({ type: 'protect' })} setup={() => setModal({ type: 'access' })} remove={() => setModal({ type: 'remove' })} credits={() => setModal({ type: 'credits' })} apps={() => setModal({ type: 'dapps' })} appCount={dapps.sessions.length}
+          passkey={mode === 'wallet' && passkeyDevice() ? passkey : undefined}
+          togglePasskey={() => { if (passkey) { disablePasskey(); setPasskey(false); notify(t('Face ID unlock off')) } else setModal({ type: 'passkey' }) }}
+          changePassword={() => setModal({ type: 'password' })} />}
       </main>
       </div>
 
-      <nav className="tabbar" aria-label="Wallet navigation">
+      <nav className="tabbar" aria-label={t('Wallet navigation')}>
         <span className="tab-pill" aria-hidden="true" style={{ '--i': Math.max(0, tabs.indexOf(page)), opacity: tabs.includes(page) ? 1 : 0 } as CSSProperties} />
-        {navigation.filter(({ id }) => id !== 'networks').map(({ id, label, icon: Icon }) => <a href={`#${id}`} aria-current={page === id ? 'page' : undefined} aria-label={label} key={id}><Icon size={23} /><span>{label}</span></a>)}
+        {navigation.filter(({ id }) => id !== 'networks').map(({ id, label, icon: Icon }) => <a href={`#${id}`} aria-current={page === id ? 'page' : undefined} aria-label={t(label)} key={id}><Icon size={23} /><span>{t(label)}</span></a>)}
       </nav>
     </div>}
 
-    {updateReady && <div className="update-banner button secondary" role="status"><Download size={16} /> Reload to update Still</div>}
-    <div className={`toast ${toast ? 'visible' : ''}${toast.endsWith('.') ? ' toast--warn' : ''}`} role="status">{toast && <>{toast.endsWith('.') ? <Info size={18} /> : <Check size={18} />}{toast}</>}</div>
+    {updateReady && <div className="update-banner button secondary" role="status"><Download size={16} /> {t('Reload to update Still')}</div>}
+    <div className={`toast ${toast ? 'visible' : ''}${toast.endsWith('.') ? ' toast--warn' : ''}`} role="status">{toast && <>{toast.endsWith('.') ? <Info size={18} /> : <Check size={18} />}{t(toast)}</>}</div>
 
+    {mode === 'wallet' && session && !preferences.offline && <DappPrompts prompts={dapps.prompts} wallet={{ session, name: wallet.name, prepareDapp: wallet.prepareDapp, withEndpoint: wallet.withEndpoint, submit: wallet.submit, notify }} />}
     {[under?.modal, modal].map((sheet) => sheet && <div key={sheetKey(sheet)} className={sheet === modal ? (under ? 'sheet-over' : undefined) : under?.fading ? 'sheet-under fading' : 'sheet-under'}>{renderSheet(sheet)}</div>)}
   </div>
 
@@ -345,8 +381,8 @@ export default function App() {
         {modal.type === 'access' && <Access locked={mode === 'locked'} intent={modal.intent} onSession={start} close={close} />}
         {modal.type === 'receive' && session && <Receive addresses={session.addresses} networks={displayedNetworks} initial={transferNetwork} initialAsset={modal.token} close={close} />}
         {modal.type === 'swap' && session && <Swap from={modal.network ? { network: modal.network, asset: modal.token ?? modal.network } : undefined} close={close} quote={wallet.prepareAnySwap} submit={wallet.submit} finished={() => { closeSheet(); go('activity') }} />}
-        {modal.type === 'send' && session && <Send networks={displayedNetworks} initial={transferNetwork} initialAsset={modal.token} close={close} quote={wallet.prepare} submit={wallet.submit} finished={() => { closeSheet(); go('activity') }} />}
-        {modal.type === 'asset' && selected && <AssetDetails network={selected} token={modal.token ? tokenById(modal.token) : undefined} amount={modal.token ? tokenAmount(modal.token) : assetAmount(selected)} noWallet={mode !== 'wallet'} close={close} send={(id) => openTransfer('send', id, modal.token)} receive={(id) => openTransfer('receive', id, modal.token)} swap={() => openTransfer('swap', selected.id, modal.token)} scramble={() => setModal({ type: 'scramble', network: selected.id, token: modal.token })} />}
+        {modal.type === 'send' && session && <Send contacts={wallet.contacts} editContact={wallet.editContact} networks={displayedNetworks} initial={transferNetwork} initialAsset={modal.token} close={close} quote={wallet.prepare} submit={wallet.submit} finished={() => { closeSheet(); go('activity') }} />}
+        {modal.type === 'asset' && selected && <AssetDetails network={selected} token={modal.token ? tokenById(modal.token) : undefined} amount={modal.token ? tokenAmount(modal.token) : assetAmount(selected)} noWallet={mode !== 'wallet'} close={close} send={(id) => openTransfer('send', id, modal.token)} receive={(id) => openTransfer('receive', id, modal.token)} swap={() => openTransfer('swap', selected.id, modal.token && tokenById(modal.token)?.user ? undefined : modal.token)} scramble={() => setModal({ type: 'scramble', network: selected.id, token: modal.token })} />}
         {modal.type === 'scramble' && <Scramble networks={displayedNetworks} initial={networks[modal.network]} initialAsset={modal.token ?? modal.network} close={close} />}
         {modal.type === 'rpc' && selected && <RpcDialog network={selected} current={preferences.rpc[selected.id]} offline={preferences.offline} close={close} save={(value) => {
           const rpc = { ...preferences.rpc }
@@ -354,46 +390,89 @@ export default function App() {
           else delete rpc[selected.id]
           if (wallet.update({ rpc })) { closeSheet(); notify(value ? 'Custom RPC saved' : 'Default RPC restored') }
         }} test={async (network, endpoint, signal) => (await import('./rpc')).testEndpoint(network, endpoint, signal)} />}
-        {modal.type === 'manage' && session && <ManageCoins environment={preferences.environment} layout={wallet.layout} save={wallet.arrange} close={close} />}
-        {modal.type === 'credits' && <Dialog title="Credits" close={close}>
+        {modal.type === 'manage' && session && <ManageCoins environment={preferences.environment} layout={wallet.layout} save={wallet.arrange} close={close} imports={{
+          add: wallet.importToken, remove: wallet.removeToken,
+          lookup: async (id, address, signal) => {
+            if (preferences.offline) throw new Error('Turn on network requests to look up tokens.')
+            const network = networks[id]
+            return (await import('./discover')).lookupToken(network, preferences.rpc[id] ?? defaultEndpoint(network), address, signal)
+          },
+        }} />}
+        {modal.type === 'credits' && <Dialog title={t('Credits')} close={close}>
           <div className="form">
-            <p className="dialog-intro"><strong className="credits-title">Still Wallet by ow2</strong>Open source under the MIT License.</p>
-            <ul className="credits-list">{team.map(([name, role]) => <li key={name}><span><strong>{name}</strong><small>{role}</small></span></li>)}</ul>
-            <p className="dialog-intro">Supported by</p>
-            <ul className="credits-list">{supporters.map(([name, role]) => <li key={name}><span><strong>{name}</strong><small>{role}</small></span></li>)}</ul>
-            <p className="dialog-intro">Data from</p>
-            <ul className="credits-list">{dataSources.map(([name, kind, use]) => <li key={name}><span><strong>{name}</strong><small>{use}</small></span><em>{kind}</em></li>)}</ul>
-            <p className="dialog-intro">Built on these open-source projects:</p>
+            <p className="dialog-intro"><strong className="credits-title">{t('Still Wallet by ow2')}</strong>{t('Open source under the MIT License.')}</p>
+            <ul className="credits-list">{team.map(([name, role]) => <li key={name}><span><strong>{name}</strong><small>{t(role)}</small></span></li>)}</ul>
+            <p className="dialog-intro">{t('Supported by')}</p>
+            <ul className="credits-list">{supporters.map(([name, role]) => <li key={name}><span><strong>{name}</strong><small>{t(role)}</small></span></li>)}</ul>
+            <p className="dialog-intro">{t('Data from')}</p>
+            <ul className="credits-list">{dataSources.map(([name, kind, use]) => <li key={name}><span><strong>{name}</strong><small>{t(use)}</small></span><em>{t(kind)}</em></li>)}</ul>
+            <p className="dialog-intro">{t('Built on these open-source projects:')}</p>
             <ul className="credits-list">
               {credits.map(([name, license, use]) => <li key={name}><span><strong>{name}</strong><small>{use}</small></span><em>{license}</em></li>)}
             </ul>
-            <p className="field-note">Thanks to everyone who maintains these projects.</p>
+            <p className="field-note">{t('Thanks to everyone who maintains these projects.')}</p>
           </div>
         </Dialog>}
-        {modal.type === 'leave' && <Dialog title={modal.to === 'discord' ? 'Open Discord?' : 'Leave the wallet?'} close={close}>
+        {modal.type === 'leave' && <Dialog title={modal.to === 'discord' ? t('Open Discord?') : t('Leave the wallet?')} close={close}>
           <div className="form"><span className="empty-icon">{modal.to === 'discord' ? <ExternalLink size={24} /> : <Info size={24} />}</span>
-            <p className="dialog-intro dialog-intro--center">{modal.to === 'discord' ? 'This opens the ow2 Discord in a new tab, outside Still Wallet.' : 'This takes you to the ow2 About page.'}</p>
-            <div className="two-actions"><button className="button primary" onClick={close} autoFocus>Cancel</button><button className="button secondary" onClick={() => {
+            <p className="dialog-intro dialog-intro--center">{modal.to === 'discord' ? t('This opens the ow2 Discord in a new tab, outside Still Wallet.') : t('This takes you to the ow2 About page.')}</p>
+            <div className="two-actions"><button className="button primary" onClick={close} autoFocus>{t('Cancel')}</button><button className="button secondary" onClick={() => {
               if (modal.to === 'discord') { window.open(discord, '_blank', 'noopener,noreferrer'); closeSheet() }
               else { closeSheet(); window.setTimeout(() => { go('about') }, 280) }
-            }}>{modal.to === 'discord' ? 'Open Discord' : 'Continue'}</button></div>
+            }}>{modal.to === 'discord' ? t('Open Discord') : t('Continue')}</button></div>
           </div>
         </Dialog>}
-        {modal.type === 'protect' && <Dialog title="Turn on account protection?" close={close}>
+        {modal.type === 'protect' && <Dialog title={t('Turn on account protection?')} close={close}>
           <div className="form"><span className="empty-icon"><ShieldAlert size={25} /></span>
-            <p className="dialog-intro">After {maxUnlockAttempts} wrong passwords in a row, Still erases this wallet from this browser. You’ll need your recovery phrase to get it back.</p>
-            <div className="two-actions"><button className="button primary" onClick={close} autoFocus>Cancel</button><button className="button secondary" onClick={() => { if (wallet.update({ protect: true })) { closeSheet(); notify('Account protection on') } }}>Turn on</button></div>
+            <p className="dialog-intro">{t('After {count} wrong passwords in a row, Still erases this wallet from this browser. You’ll need your recovery phrase to get it back.', { count: maxUnlockAttempts })}</p>
+            <div className="two-actions"><button className="button primary" onClick={close} autoFocus>{t('Cancel')}</button><button className="button secondary" onClick={() => { if (wallet.update({ protect: true })) { closeSheet(); notify('Account protection on') } }}>{t('Turn on')}</button></div>
           </div>
         </Dialog>}
-        {modal.type === 'offline' && <Dialog title="Network requests paused" close={close}>
-          <p className="dialog-intro">Sending and swapping require a connection to your selected RPC.</p>
-          <a className="button primary wide" href="#settings" onClick={close}>Open privacy settings <ArrowRight size={17} /></a>
+        {modal.type === 'passkey' && session && <PasskeyDialog session={session} name={wallet.name} close={close} done={() => { setPasskey(true); closeSheet(); notify(t('Face ID unlock on')) }} />}
+        {modal.type === 'offline' && <Dialog title={t('Network requests paused')} close={close}>
+          <p className="dialog-intro">{t('Sending and swapping require a connection to your selected RPC.')}</p>
+          <a className="button primary wide" href="#settings" onClick={close}>{t('Open privacy settings')} <ArrowRight size={17} /></a>
         </Dialog>}
         {modal.type === 'wallets' && session && <WalletSwitcher wallets={wallet.wallets} active={session.id} close={close} select={(account) => { void wallet.switchWallet(account).then(closeSheet) }} add={() => { closeSheet(); toHome(); void wallet.addWallet() }} rename={wallet.rename} setEmoji={wallet.setEmoji} />}
+        {modal.type === 'phrase' && session && <RecoveryPhrase session={session} close={close} />}
+        {modal.type === 'contacts' && session && <Contacts contacts={wallet.contacts} edit={wallet.editContact} networks={displayedNetworks} close={close} />}
+        {modal.type === 'dapps' && session && <ConnectedApps close={close} offline={preferences.offline} initialLink={modal.link} />}
         {modal.type === 'rename' && session && <RenameWallet current={wallet.name} close={close} save={(value) => { if (wallet.rename(value)) { closeSheet(); notify('Wallet renamed') } }} />}
+        {modal.type === 'password' && session && <ChangePassword session={session} close={close} done={() => { closeSheet(); notify('Password changed') }} />}
         {modal.type === 'remove' && session && <RemoveWallet session={session} close={close} removed={() => { wallet.removed(); notify('Wallet deleted') }} />}
     </>
   }
+}
+
+function PasskeyDialog({ session, name, close, done }: { session: Session; name: string; close: () => void; done: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [tries, setTries] = useState(0)
+  const [pending, setPending] = useState<Extract<PasskeySetup, { done: false }>>()
+
+  // Runs straight from the tap: phones only show Face ID for a fresh tap.
+  async function run() {
+    setBusy(true)
+    try {
+      if (pending) { await pending.confirm(); done(); return }
+      const result = await enablePasskey(session, name)
+      if (result.done) done()
+      else { setError(''); setPending(result) }
+    } catch (problem) {
+      const message = problem instanceof Error ? problem.message : 'Face ID unlock could not be turned on.'
+      if (message !== 'Cancelled') { setError(message); setTries((value) => value + 1) }
+    } finally { setBusy(false) }
+  }
+
+  return <Dialog title={pending ? t('One more step') : t('Turn on Face ID unlock?')} close={close} busy={busy}>
+    <div className="form"><span className="empty-icon"><ScanFace size={25} /></span>
+      <p className="dialog-intro dialog-intro--center">{pending ? t('Confirm with Face ID once more to finish.') : t('Still saves a passkey on this phone. Face ID opens the wallet, your password keeps working too.')}</p>
+      <ErrorSlot error={error} attempt={tries} />
+      {pending
+        ? <button className="button primary wide" onClick={() => void run()} disabled={busy}><ScanFace size={17} />{t('Confirm with Face ID')}</button>
+        : <div className="two-actions"><button className="button primary" onClick={close} disabled={busy} autoFocus>{t('Cancel')}</button><button className="button secondary" onClick={() => void run()} disabled={busy}><span key={String(busy)} className="label-swap">{busy ? t('Waiting…') : t('Turn on')}</span></button></div>}
+    </div>
+  </Dialog>
 }
 
 function RemoveWallet({ session, close, removed }: { session: Session; close: () => void; removed: () => void }) {
@@ -417,12 +496,57 @@ function RemoveWallet({ session, close, removed }: { session: Session; close: ()
     } finally { setBusy(false) }
   }
 
-  return <Dialog title="Delete wallet?" close={close} busy={busy}>
+  return <Dialog title={t('Delete wallet?')} close={close} busy={busy}>
     <form className="form" autoComplete="off" onSubmit={remove}>
-      <Notice>This deletes every wallet, name, emoji, activity and setting Still saved in this browser. Make sure you have your recovery phrase, it’s the only way to get your funds back.</Notice>
-      <label className={error ? 'field field--wrong' : 'field'}>{'Wallet pass⁠word'}<PasswordInput value={password} onChange={(event) => setPassword(event.target.value)} required maxLength={256} /></label>
+      <Notice>{t('This deletes every wallet, name, emoji, activity and setting Still saved in this browser. Make sure you have your recovery phrase, it’s the only way to get your funds back.')}</Notice>
+      <label className={error ? 'field field--wrong' : 'field'}>{t('Wallet pass⁠word')}<PasswordInput value={password} onChange={(event) => setPassword(event.target.value)} required maxLength={256} /></label>
       <ErrorSlot error={error} attempt={tries} />
-      <div className="two-actions"><button className="button primary" type="button" onClick={close} disabled={busy}>Cancel</button><button className="button secondary" type="submit" disabled={busy}><span key={String(busy)} className="label-swap">{busy ? 'Deleting…' : 'Delete wallet'}</span></button></div>
+      <div className="two-actions"><button className="button primary" type="button" onClick={close} disabled={busy}>{t('Cancel')}</button><button className="button secondary" type="submit" disabled={busy}><span key={String(busy)} className="label-swap">{busy ? t('Deleting…') : t('Delete wallet')}</span></button></div>
+    </form>
+  </Dialog>
+}
+
+function ChangePassword({ session, close, done }: { session: Session; close: () => void; done: () => void }) {
+  const [current, setCurrent] = useState('')
+  const [next, setNext] = useState('')
+  const [confirmation, setConfirmation] = useState('')
+  const [error, setError] = useState('')
+  const [wrong, setWrong] = useState(false)
+  const [tries, setTries] = useState(0)
+  const [busy, setBusy] = useState(false)
+
+  function fail(message: string, currentWrong = false) {
+    setError(message)
+    setWrong(currentWrong)
+    setTries((value) => value + 1)
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!passwordRules.every((rule) => rule.test(next))) return fail('Your new password doesn’t meet all the requirements yet.')
+    if (next !== confirmation) return fail('The passwords do not match.')
+    if (next === current) return fail('Pick a password different from your current one.')
+    setBusy(true)
+    try {
+      const { changePassword } = await import('./vault')
+      await changePassword(session.vault, current, next)
+      done()
+    } catch (problem) {
+      const message = problem instanceof Error ? problem.message : 'The password could not be changed. Nothing was changed.'
+      fail(message, message === 'Incorrect password')
+    } finally { setBusy(false) }
+  }
+
+  return <Dialog title={t('Change pass\u2060word')} close={close} busy={busy}>
+    <form className="form" autoComplete="off" onSubmit={submit}>
+      <label className={wrong ? 'field field--wrong' : 'field'}>{t('Current pass\u2060word')}<PasswordInput value={current} onChange={(event) => { setCurrent(event.target.value); setWrong(false) }} autoFocus required maxLength={256} /></label>
+      <label className="field">{t('New pass\u2060word')}<PasswordInput value={next} onChange={(event) => setNext(event.target.value)} required maxLength={256} aria-describedby="new-password-rules" /></label>
+      <ul className="password-rules" id="new-password-rules" aria-live="polite">
+        {passwordRules.map((rule) => { const met = rule.test(next); return <li key={rule.label} className={met ? 'met' : ''}>{met ? <Check size={14} /> : <X size={14} />}{t(rule.label)}</li> })}
+      </ul>
+      <label className="field">{t('Confirm pass\u2060word')}<PasswordInput value={confirmation} onChange={(event) => setConfirmation(event.target.value)} required maxLength={256} /></label>
+      <ErrorSlot error={error} attempt={tries} />
+      <button className="button primary wide" type="submit" disabled={busy}>{busy ? <LoaderCircle size={17} className="spin" /> : <LockKeyhole size={17} />}<span key={String(busy)} className="label-swap">{busy ? t('Changing…') : t('Change pass\u2060word')}</span></button>
     </form>
   </Dialog>
 }
@@ -438,6 +562,14 @@ function LockScreen({ mainRef, protect, preload, onSession, removed }: { mainRef
   const cameBack = useRef(false)
   const [tries, setTries] = useState(0)
   const [failures, setFailures] = useState(failedUnlocks)
+  const [passkey] = useState(passkeyOn)
+  // Face ID right away, like a banking app. Phones that want a tap first just ignore it.
+  const asked = useRef(false)
+  useEffect(() => {
+    if (!passkey || asked.current) return
+    asked.current = true
+    void faceId(true)
+  }, [passkey])
   // Wrong password error fades after a few seconds.
   useEffect(() => {
     if (!error || busy) return
@@ -462,12 +594,33 @@ function LockScreen({ mainRef, protect, preload, onSession, removed }: { mainRef
   if (forgot) return <main ref={mainRef} id="main-content" className="lock-screen" tabIndex={-1}>
     <div className="lock-top"><Brand name="Still Wallet" stacked /></div>
     <div className="lock-card form lock-card--swap">
-      <h1>Forgot your password?</h1>
-      <p className="dialog-intro">Still can’t recover it. You can delete this wallet from this browser and restore it later with your recovery phrase. This can’t be undone.</p>
+      <h1>{t('Forgot your password?')}</h1>
+      <p className="dialog-intro">{t('Still can’t recover it. You can delete this wallet from this browser and restore it later with your recovery phrase. This can’t be undone.')}</p>
       <ErrorSlot error={error} />
-      <div className="two-actions"><button type="button" className="button primary" disabled={busy} onClick={() => { cameBack.current = true; setForgot(false) }} autoFocus>Cancel</button><button type="button" className="button secondary" disabled={busy} onClick={() => void reset()}><span key={String(busy)} className="label-swap">{busy ? 'Deleting…' : 'Delete wallet'}</span></button></div>
+      <div className="two-actions"><button type="button" className="button primary" disabled={busy} onClick={() => { cameBack.current = true; setForgot(false) }} autoFocus>{t('Cancel')}</button><button type="button" className="button secondary" disabled={busy} onClick={() => void reset()}><span key={String(busy)} className="label-swap">{busy ? t('Deleting…') : t('Delete wallet')}</span></button></div>
     </div>
   </main>
+
+  async function finish(session: Session) {
+    try { saveFailedUnlocks(0) } catch { /* Counter reset is best effort. */ }
+    // Unlock ok: load balances while still on this screen, so the wallet opens filled in.
+    try { await preload(session) } catch { /* The wallet retries on its own. */ }
+    // Then open the padlock, then the wallet.
+    setUnlocked(true)
+    window.setTimeout(() => onSession(session), 650)
+  }
+
+  async function faceId(quiet = false) {
+    if (busy) return
+    setBusy(true)
+    try {
+      await finish(await unlockWithPasskey())
+    } catch (problem) {
+      // Cancel and the silent first try stay quiet. Never counts as a wrong password.
+      if (!quiet && problem instanceof Error && problem.message !== 'Cancelled') { setError(problem.message); setTries((value) => value + 1) }
+      setBusy(false)
+    }
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -475,13 +628,7 @@ function LockScreen({ mainRef, protect, preload, onSession, removed }: { mainRef
     setBusy(true)
     try {
       const { unlockVault } = await import('./vault')
-      const session = await unlockVault(password)
-      try { saveFailedUnlocks(0) } catch { /* Counter reset is best effort. */ }
-      // Password ok: load balances while still on this screen, so the wallet opens filled in.
-      try { await preload(session) } catch { /* The wallet retries on its own. */ }
-      // Then open the padlock, then the wallet.
-      setUnlocked(true)
-      window.setTimeout(() => onSession(session), 650)
+      await finish(await unlockVault(password))
     } catch (problem) {
       setError(problem instanceof Error ? problem.message : 'The local wallet could not be opened.')
       setTries((value) => value + 1)
@@ -499,16 +646,17 @@ function LockScreen({ mainRef, protect, preload, onSession, removed }: { mainRef
   return <main ref={mainRef} id="main-content" className="lock-screen" tabIndex={-1}>
     <div className="lock-top"><Brand name="Still Wallet" stacked /></div>
     <form autoComplete="off" className={cameBack.current ? 'lock-card form lock-card--swap lock-card--back' : 'lock-card form'} onSubmit={submit}>
-      <h1>Enter your password</h1>
-      <label className={error ? 'field field--wrong' : 'field'}><PasswordInput aria-label="Wallet key" aria-invalid={!!error} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" required maxLength={256} autoFocus /></label>
+      <h1>{t('Enter your password')}</h1>
+      <label className={error ? 'field field--wrong' : 'field'}><PasswordInput aria-label={t('Wallet key')} aria-invalid={!!error} value={password} onChange={(event) => setPassword(event.target.value)} placeholder={t('Password')} required maxLength={256} autoFocus /></label>
       {protect && failures > 0 && (maxUnlockAttempts - failures === 1
-        ? <p className="last-try" role="alert"><ShieldAlert size={18} /><span><strong>Last try</strong>One more wrong password erases this wallet.</span></p>
-        : <p className="attempts-left">{maxUnlockAttempts - failures} tries left before this wallet is erased</p>)}
+        ? <p className="last-try" role="alert"><ShieldAlert size={18} /><span><strong>{t('Last try')}</strong>{t('One more wrong password erases this wallet.')}</span></p>
+        : <p className="attempts-left">{t('{count} tries left before this wallet is erased', { count: maxUnlockAttempts - failures })}</p>)}
       <ErrorSlot error={error} attempt={tries} />
       <button type="submit" className="button primary wide" disabled={busy || !password}>
-        <span key={unlocked ? 'open' : String(busy)} className="label-swap">{unlocked ? <LockKeyhole size={17} className="unlocking" /> : busy ? <LoaderCircle size={17} className="spin" /> : <LockKeyhole size={17} />}{unlocked ? 'Unlocked' : busy ? 'Unlocking…' : 'Unlock'}</span>
+        <span key={unlocked ? 'open' : String(busy)} className="label-swap">{unlocked ? <LockKeyhole size={17} className="unlocking" /> : busy ? <LoaderCircle size={17} className="spin" /> : <LockKeyhole size={17} />}{unlocked ? t('Unlocked') : busy ? t('Unlocking…') : t('Unlock')}</span>
       </button>
-      <button type="button" className="button text-button wide" onClick={() => { setError(''); setForgot(true) }}>Forgot password?</button>
+      {passkey && <button type="button" className="button secondary wide" disabled={busy} onClick={() => void faceId()}><ScanFace size={17} />{t('Use Face ID')}</button>}
+      <button type="button" className="button text-button wide" onClick={() => { setError(''); setForgot(true) }}>{t('Forgot password?')}</button>
     </form>
   </main>
 }
@@ -516,11 +664,11 @@ function LockScreen({ mainRef, protect, preload, onSession, removed }: { mainRef
 function RenameWallet({ current, close, save }: { current: string; close: () => void; save: (value: string) => void }) {
   const [value, setValue] = useState(current)
   const name = normalizeWalletName(value)
-  return <Dialog title="Wallet name" close={close}>
+  return <Dialog title={t('Wallet name')} close={close}>
     <form className="form" onSubmit={(event) => { event.preventDefault(); if (name) save(name) }}>
-      <label className="field">{'Na\u2060me'}<input value={value} onChange={(event) => setValue(event.target.value)} maxLength={24} name="wallet-label" autoComplete="off" autoCorrect="off" spellCheck={false} data-1p-ignore data-lpignore="true" autoFocus placeholder="Wallet 1" /></label>
-      <p className="field-note">Only shown on this device.</p>
-      <button className="button primary wide" type="submit" disabled={!name || name === current}>Save name</button>
+      <label className="field">{t('Na\u2060me')}<input value={value} onChange={(event) => setValue(event.target.value)} maxLength={24} name="wallet-label" autoComplete="off" autoCorrect="off" spellCheck={false} data-1p-ignore data-lpignore="true" autoFocus placeholder={t('Wallet {number}', { number: 1 })} /></label>
+      <p className="field-note">{t('Only shown on this device.')}</p>
+      <button className="button primary wide" type="submit" disabled={!name || name === current}>{t('Save name')}</button>
     </form>
   </Dialog>
 }
@@ -537,58 +685,26 @@ function WalletSwitcher({ wallets, active, close, select, add, rename, setEmoji 
 
   if (entry) {
     const name = normalizeWalletName(value)
-    return <Dialog title="Edit wallet" close={close}>
+    return <Dialog title={t('Edit wallet')} close={close}>
       <form className="form" onSubmit={(event) => { event.preventDefault(); if (name && (name === entry.name || rename(name, entry.id))) setEditing(undefined) }}>
         <span className="wallet-emoji wallet-emoji--large" aria-hidden="true">{entry.emoji}</span>
         <EmojiPicker current={entry.emoji} pick={(emoji) => setEmoji(entry.id, emoji)} />
-        <label className="field">{'Na\u2060me'}<input value={value} onChange={(event) => setValue(event.target.value)} maxLength={24} name="wallet-label" autoComplete="off" autoCorrect="off" spellCheck={false} data-1p-ignore data-lpignore="true" placeholder={entry.name} /></label>
-        <button className="button primary wide" type="submit" disabled={!name}>Done</button>
-        <button type="button" className="button text-button wide" onClick={() => setEditing(undefined)}><ArrowLeft size={16} /> Back</button>
+        <label className="field">{t('Na\u2060me')}<input value={value} onChange={(event) => setValue(event.target.value)} maxLength={24} name="wallet-label" autoComplete="off" autoCorrect="off" spellCheck={false} data-1p-ignore data-lpignore="true" placeholder={entry.name} /></label>
+        <button className="button primary wide" type="submit" disabled={!name}>{t('Done')}</button>
+        <button type="button" className="button text-button wide" onClick={() => setEditing(undefined)}><ArrowLeft size={16} /> {t('Back')}</button>
       </form>
     </Dialog>
   }
 
-  return <Dialog title="Wallets" close={close}>
+  return <Dialog title={t('Wallets')} close={close}>
     <ul className="wallet-list">
       {wallets.map((item) => <li key={item.id} className={item.id === active ? 'active' : ''}>
         <button type="button" className="wallet-pick" onClick={() => select(item.account)} aria-current={item.id === active ? 'true' : undefined}>
           <span className="wallet-emoji" aria-hidden="true">{item.emoji}</span><strong>{item.name}</strong>{item.id === active && <Check size={17} />}
         </button>
-        <button type="button" className="round-button" aria-label={`Edit ${item.name}`} onClick={() => { setValue(item.name); setEditing(item.id) }}><Pencil size={16} /></button>
+        <button type="button" className="round-button" aria-label={t('Edit {name}', { name: item.name })} onClick={() => { setValue(item.name); setEditing(item.id) }}><Pencil size={16} /></button>
       </li>)}
     </ul>
-    <button type="button" className="button secondary wide" onClick={add}><Plus size={17} /> Add wallet</button>
+    <button type="button" className="button secondary wide" onClick={add}><Plus size={17} /> {t('Add wallet')}</button>
   </Dialog>
-}
-
-/** Category tabs + scrolling grid, like a phone emoji keyboard. */
-/** Highlight that slides to the child matching `selector`. No animation the first time. */
-function SlideRing({ selector, watch }: { selector: string; watch: unknown }) {
-  const ring = useRef<HTMLSpanElement>(null)
-  const placed = useRef(false)
-  useLayoutEffect(() => {
-    const element = ring.current!
-    const target = element.parentElement?.querySelector<HTMLElement>(selector)
-    if (!target) { element.style.opacity = '0'; placed.current = false; return }
-    element.style.transition = placed.current ? '' : 'none'
-    Object.assign(element.style, { opacity: '1', width: `${target.offsetWidth}px`, height: `${target.offsetHeight}px`, transform: `translate(${target.offsetLeft}px, ${target.offsetTop}px)` })
-    placed.current = true
-  }, [selector, watch])
-  return <span ref={ring} className="slide-ring" aria-hidden="true" />
-}
-
-function EmojiPicker({ current, pick }: { current: string; pick: (emoji: string) => void }) {
-  const [tab, setTab] = useState(() => Math.max(0, emojiCategories.findIndex((category) => category.emojis.includes(current))))
-  const category = emojiCategories[tab]
-  return <div className="emoji-picker">
-    <div className="emoji-tabs" role="tablist" aria-label="Emoji categories">
-      <SlideRing selector='[aria-selected="true"]' watch={tab} />
-      {emojiCategories.map((item, index) => <button type="button" role="tab" key={item.name} aria-selected={index === tab} aria-label={item.name} onClick={() => setTab(index)}>{item.emojis[0]}</button>)}
-    </div>
-    <p className="emoji-category">{category.name}</p>
-    <div className="emoji-grid" role="radiogroup" aria-label={`${category.name} emoji`} key={category.name}>
-      <SlideRing selector='[aria-checked="true"]' watch={current} />
-      {category.emojis.map((emoji) => <button type="button" role="radio" aria-checked={emoji === current} aria-label={emoji} key={emoji} onClick={() => pick(emoji)}>{emoji}</button>)}
-    </div>
-  </div>
 }

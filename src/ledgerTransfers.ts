@@ -1,17 +1,68 @@
 import { hex } from '@scure/base'
 import { sha512 } from '@noble/hashes/sha2.js'
-import { Address, p2wpkh, selectUTXO } from '@scure/btc-signer'
+import { Address, NETWORK, OutScript, p2pkh, p2wpkh, selectUTXO } from '@scure/btc-signer'
+import type { HDKey } from '@scure/bip32'
 import { encode, encodeForSigning } from 'ripple-binary-codec'
 import { isValidClassicAddress, isValidXAddress, xAddressToClassicAddress } from 'ripple-address-codec'
 import { sign } from 'ripple-keypairs'
-import { bitcoinKey, xrpKey } from './keys'
+import { bitcoinCashKey, bitcoinKey, dashKey, dogecoinKey, litecoinKey, xrpKey, zcashKey } from './keys'
 import { formatAmount, parseAmount, type Network } from './networks'
 import type { ActivityItem } from './storage'
 import type { Quote } from './rpc'
 
-const bitcoinGenesis = '000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f'
 const hashPattern = /^[a-f\d]{64}$/i
 const xrpLedgerWindow = 10
+
+type UtxoChain = 'bitcoin' | 'litecoin' | 'dogecoin' | 'dash' | 'bitcoincash' | 'zcash'
+type UtxoParams = {
+  name: string
+  symbol: string
+  genesis: string
+  network: { bech32: string; pubKeyHash: number; scriptHash: number; wif: number }
+  /** Native SegWit (wpkh) or legacy (pkh, Dogecoin). */
+  kind: 'wpkh' | 'pkh'
+  key: (phrase: string, account: number) => Promise<HDKey>
+  /** Smallest amount to send, also the change dust limit, in base units. */
+  dust: bigint
+  /** Fee rate bounds in base units per byte. */
+  minFee: number
+  maxFee: number
+  /** Fixed rate when the provider has no useful estimate (Dogecoin: 0.01 DOGE/kB). */
+  fixedFee?: number
+}
+
+const utxoParams: Record<UtxoChain, UtxoParams> = {
+  bitcoin: {
+    name: 'Bitcoin', symbol: 'BTC', genesis: '000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f',
+    network: NETWORK, kind: 'wpkh', key: bitcoinKey, dust: 546n, minFee: 1, maxFee: 2_000,
+  },
+  litecoin: {
+    name: 'Litecoin', symbol: 'LTC', genesis: '12a765e31ffd4059bada1e25190f6e98c99d9714d334efa41a195a7e7e04bfe2',
+    network: { bech32: 'ltc', pubKeyHash: 0x30, scriptHash: 0x32, wif: 0xb0 }, kind: 'wpkh', key: litecoinKey, dust: 546n, minFee: 2, maxFee: 2_000,
+  },
+  dogecoin: {
+    name: 'Dogecoin', symbol: 'DOGE', genesis: '1a91e3dace36e2be3bf030a65679fe821aa1d6ef92e7c9902eb318182c355691',
+    network: { bech32: 'doge', pubKeyHash: 0x1e, scriptHash: 0x16, wif: 0x9e }, kind: 'pkh', key: dogecoinKey, dust: 1_000_000n, minFee: 1_000, maxFee: 100_000, fixedFee: 1_000,
+  },
+  dash: {
+    name: 'Dash', symbol: 'DASH', genesis: '00000ffd590b1485b3caadc19b22e6379c733355108f107a430458cdf3407ab6',
+    network: { bech32: 'dash', pubKeyHash: 0x4c, scriptHash: 0x10, wif: 0xcc }, kind: 'pkh', key: dashKey, dust: 10_000n, minFee: 1, maxFee: 1_000, fixedFee: 2,
+  },
+  // Signed in forkTransfers.ts, listed here for the network check.
+  bitcoincash: {
+    name: 'Bitcoin Cash', symbol: 'BCH', genesis: '000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f',
+    network: { bech32: 'bitcoincash', pubKeyHash: 0, scriptHash: 5, wif: 0x80 }, kind: 'pkh', key: bitcoinCashKey, dust: 546n, minFee: 1, maxFee: 1, fixedFee: 1,
+  },
+  zcash: {
+    name: 'Zcash', symbol: 'ZEC', genesis: '00040fe8ec8471911baa1db1266ea15dd06b4a8a5c453883c000b031973dce08',
+    network: { bech32: 'zcash', pubKeyHash: 0x1cb8, scriptHash: 0x1cbd, wif: 0x80 }, kind: 'pkh', key: zcashKey, dust: 5_460n, minFee: 1, maxFee: 1, fixedFee: 1,
+  },
+}
+
+function utxoFor(network: Network) {
+  if (!Object.hasOwn(utxoParams, network.chain)) throw new Error('Unsupported network.')
+  return utxoParams[network.chain as UtxoChain]
+}
 
 function bitcoinApi(endpoint: string, path: string, fetcher: typeof fetch, options?: RequestInit) {
   const url = new URL(endpoint)
@@ -19,39 +70,63 @@ function bitcoinApi(endpoint: string, path: string, fetcher: typeof fetch, optio
   return fetcher(url, options)
 }
 
-async function bitcoinRead(endpoint: string, path: string, fetcher: typeof fetch) {
+async function bitcoinRead(endpoint: string, path: string, fetcher: typeof fetch, name = 'Bitcoin') {
   const result = await bitcoinApi(endpoint, path, fetcher)
-  if (!result.ok) throw new Error('The Bitcoin provider could not load transaction data.')
+  if (!result.ok) throw new Error(`The ${name} provider could not load transaction data.`)
   return result
 }
 
-export async function checkBitcoinNetwork(endpoint: string, fetcher: typeof fetch) {
-  const result = await bitcoinRead(endpoint, '/block-height/0', fetcher)
-  if ((await result.text()).trim() !== bitcoinGenesis) throw new Error('The provider is connected to a different Bitcoin network.')
+/** Checks the provider's genesis block. `network` defaults to Bitcoin for older callers. */
+export async function checkBitcoinNetwork(endpoint: string, fetcher: typeof fetch, network?: Network) {
+  const params = network ? utxoFor(network) : utxoParams.bitcoin
+  const result = await bitcoinRead(endpoint, '/block-height/0', fetcher, params.name)
+  if ((await result.text()).trim() !== params.genesis) throw new Error(`The provider is connected to a different ${params.name} network.`)
+}
+
+/** Esplora fee estimates, or mempool.space-style recommended fees (litecoinspace has only those). */
+async function feeRate(endpoint: string, params: UtxoParams, fetcher: typeof fetch) {
+  if (params.fixedFee) return params.fixedFee
+  let rate: number | undefined
+  const estimates = await bitcoinApi(endpoint, '/fee-estimates', fetcher)
+  if (estimates.ok) {
+    const data = await estimates.json() as Record<string, number>
+    rate = data['3'] ?? data['6'] ?? data['2']
+  } else {
+    await estimates.body?.cancel()
+    const data = await (await bitcoinRead(endpoint, '/v1/fees/recommended', fetcher, params.name)).json() as { halfHourFee?: number }
+    rate = data.halfHourFee
+  }
+  const value = Math.max(params.minFee, Math.ceil(Number(rate)))
+  if (!Number.isSafeInteger(value) || value > params.maxFee) throw new Error(`${params.name} network fees are currently unavailable.`)
+  return value
 }
 
 type Utxo = { txid: string; vout: number; value: number; status?: { confirmed?: boolean } }
 
 export async function quoteBitcoin(network: Network, endpoint: string, from: string, recipient: string, amount: string, fetcher: typeof fetch): Promise<Quote> {
+  if (network.chain === 'bitcoincash' || network.chain === 'zcash') {
+    await checkBitcoinNetwork(endpoint, fetcher, network)
+    return (await import('./forkTransfers')).quoteFork(network, endpoint, from, recipient, amount, fetcher)
+  }
+  const params = utxoFor(network)
+  const { name, symbol } = params
   const to = recipient.trim()
-  try { Address().decode(to) } catch { throw new Error('Enter a valid Bitcoin mainnet address.') }
+  try { Address(params.network).decode(to) } catch { throw new Error(`Enter a valid ${name} mainnet address.`) }
   if (from.toLowerCase() === to.toLowerCase()) throw new Error('Enter an address other than your own.')
   const value = parseAmount(amount, 8)
-  if (value < 546n || value > 2_100_000_000_000_000n) throw new Error('Enter a Bitcoin amount of at least 0.00000546 BTC within the network supply.')
-  await checkBitcoinNetwork(endpoint, fetcher)
-  const [unspent, estimates] = await Promise.all([
-    bitcoinRead(endpoint, `/address/${from}/utxo`, fetcher).then((result) => result.json() as Promise<Utxo[]>),
-    bitcoinRead(endpoint, '/fee-estimates', fetcher).then((result) => result.json() as Promise<Record<string, number>>),
+  if (value < params.dust || value > 10n ** 20n) throw new Error(`Enter at least ${formatAmount(params.dust, 8)} ${symbol}.`)
+  await checkBitcoinNetwork(endpoint, fetcher, network)
+  const [unspent, rate] = await Promise.all([
+    bitcoinRead(endpoint, `/address/${from}/utxo`, fetcher, name).then((result) => result.json() as Promise<Utxo[]>),
+    feeRate(endpoint, params, fetcher),
   ])
-  const feeRate = Math.ceil(estimates['3'] ?? estimates['6'] ?? estimates['2'])
-  if (!Number.isSafeInteger(feeRate) || feeRate < 1 || feeRate > 2_000) throw new Error('Bitcoin network fees are currently unavailable.')
-  const spend = p2wpkhFromAddress(from)
+  const spend = ownScript(from, params)
   const seen = new Set<string>()
   const candidates = unspent.filter((utxo) => {
     const outpoint = `${utxo.txid}:${utxo.vout}`.toLowerCase()
     if (!utxo.status?.confirmed || !hashPattern.test(utxo.txid) || !Number.isInteger(utxo.vout) ||
       utxo.vout < 0 || utxo.vout > 0xffff_ffff || !Number.isSafeInteger(utxo.value) ||
-      utxo.value <= 0 || utxo.value > 2_100_000_000_000_000 || seen.has(outpoint)) return false
+      utxo.value <= 0 || seen.has(outpoint)) return false
     seen.add(outpoint)
     return true
   }).sort((a, b) => b.value - a.value)
@@ -59,17 +134,21 @@ export async function quoteBitcoin(network: Network, endpoint: string, from: str
   const options = candidates.slice(0, 24).map(({ txid, vout, value }) => ({
     txid, index: vout, witnessUtxo: { script: spend, amount: BigInt(value) },
   }))
-  if (!options.length) throw new Error('There is no confirmed BTC to spend from this address.')
+  if (!options.length) throw new Error(`There is no confirmed ${symbol} to spend from this address.`)
+  // Legacy inputs pick by amount first, the full previous transaction is checked below before signing.
   const selected = selectUTXO(options, [{ address: to, amount: value }], 'default', {
-    feePerByte: BigInt(feeRate), changeAddress: from, strictPrevoutValidation: true,
+    feePerByte: BigInt(rate), changeAddress: from, network: params.network, dust: params.dust, dustRelayFeeRate: 1n,
+    allowLegacyWitnessUtxo: params.kind === 'pkh', strictPrevoutValidation: true,
   })
-  if (!selected?.tx) throw new Error('Insufficient confirmed BTC in the available inputs to cover this amount and fee.')
+  if (!selected?.tx) throw new Error(`Insufficient confirmed ${symbol} in the available inputs to cover this amount and fee.`)
   const { tx } = selected
-  for (let start = 0; start < tx.inputsLength; start += 6) {
-    await Promise.all(Array.from({ length: Math.min(6, tx.inputsLength - start) }, async (_, offset) => {
+  // The previous transactions prove every input amount (their txid is what gets signed), so a provider can't hide a fee.
+  const step = params.kind === 'pkh' ? 1 : 6
+  for (let start = 0; start < tx.inputsLength; start += step) {
+    await Promise.all(Array.from({ length: Math.min(step, tx.inputsLength - start) }, async (_, offset) => {
       const index = start + offset
       const input = tx.getInput(index)
-      const result = await bitcoinRead(endpoint, `/tx/${hex.encode(input.txid!)}/hex`, fetcher)
+      const result = await bitcoinRead(endpoint, `/tx/${hex.encode(input.txid!)}/hex`, fetcher, name)
       tx.updateInput(index, { nonWitnessUtxo: hex.decode((await result.text()).trim()) })
     }))
   }
@@ -78,9 +157,10 @@ export async function quoteBitcoin(network: Network, endpoint: string, from: str
   return {
     to, value: formatAmount(value, 8), fee: formatAmount(fee, 8), network, expires,
     async sign(session) {
-      const key = await bitcoinKey(session.mnemonic, session.account)
+      const key = await params.key(session.mnemonic, session.account)
       try {
-        if (p2wpkh(key.publicKey!).address !== from) throw new Error('This quote belongs to a different wallet.')
+        const own = params.kind === 'pkh' ? p2pkh(key.publicKey!, params.network) : p2wpkh(key.publicKey!, params.network)
+        if (own.address !== from) throw new Error('This quote belongs to a different wallet.')
         tx.sign(key.privateKey!)
         tx.finalize()
       } finally {
@@ -90,23 +170,23 @@ export async function quoteBitcoin(network: Network, endpoint: string, from: str
       const raw = tx.hex
       return { hash, async broadcast() {
         const result = await bitcoinApi(endpoint, '/tx', fetcher, { method: 'POST', body: raw, headers: { 'Content-Type': 'text/plain' } })
-        if (!result.ok || (await result.text()).trim().toLowerCase() !== hash) throw new Error('Bitcoin submission is unverified.')
+        if (!result.ok || (await result.text()).trim().toLowerCase() !== hash) throw new Error(`${name} submission is unverified.`)
       } }
     },
   }
 }
 
-function p2wpkhFromAddress(owner: string) {
-  const decoded = Address().decode(owner)
-  if (decoded.type !== 'wpkh') throw new Error('Unexpected Bitcoin wallet address type.')
-  return Uint8Array.of(0, 20, ...decoded.hash)
+function ownScript(owner: string, params: UtxoParams) {
+  const decoded = Address(params.network).decode(owner)
+  if (decoded.type !== params.kind) throw new Error(`Unexpected ${params.name} wallet address type.`)
+  return OutScript.encode(decoded)
 }
 
 export async function bitcoinStatus(item: ActivityItem, endpoint: string, fetcher: typeof fetch): Promise<ActivityItem['status']> {
   if (!hashPattern.test(item.hash)) throw new Error('Invalid transaction ID.')
   const result = await bitcoinApi(endpoint, `/tx/${item.hash}/status`, fetcher)
   if (result.status === 404) return item.status
-  if (!result.ok) throw new Error('Bitcoin confirmation is unavailable.')
+  if (!result.ok) throw new Error('Confirmation is unavailable.')
   return (await result.json() as { confirmed?: boolean }).confirmed === true ? 'confirmed' : item.status
 }
 

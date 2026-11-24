@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type InputHTMLAttributes } from 'react'
 import { X } from 'lucide-react'
+import { t } from '../i18n'
 
 // Backdrop dim during a drag. ::backdrop doesn't inherit custom props on older iOS Safari, so the drag writes to a shared style rule.
 let dimRule: CSSStyleDeclaration | undefined
@@ -167,7 +168,7 @@ export function Dialog({ title, close, busy = false, step, back = false, childre
     <div className="dialog-content">
       <div className="sheet-grab" onPointerDown={dragStart} onPointerMove={dragMove} onPointerUp={dragEnd} onPointerCancel={dragEnd}>
       <div className="sheet-handle" />
-      <div className="dialog-head"><h2 id={titleId} key={title} className="dialog-title">{title}</h2><button type="button" className="icon-button" aria-label="Close dialog" onClick={dismiss} disabled={busy}><X size={19} /></button></div>
+      <div className="dialog-head"><h2 id={titleId} key={title} className="dialog-title">{title}</h2><button type="button" className="icon-button" aria-label={t('Close dialog')} onClick={dismiss} disabled={busy}><X size={19} /></button></div>
       </div>
       <div ref={size} className="dialog-size">
         <div ref={measure} className="dialog-measure">
@@ -223,7 +224,7 @@ export function Glide({ children }: { children: ReactNode }) {
 export function ErrorSlot({ error, attempt = 0 }: { error: string; attempt?: number }) {
   const last = useRef(error)
   if (error) last.current = error
-  return <Slot open={!!error} className="error-slot">{last.current && <Notice key={attempt} error={!!error}>{last.current}</Notice>}</Slot>
+  return <Slot open={!!error} className="error-slot">{last.current && <Notice key={attempt} error={!!error}>{t(last.current)}</Notice>}</Slot>
 }
 
 /** Password field with fading dots. The real input keeps focus, caret and autofill; its glyphs are hidden and bullets drawn on top. */

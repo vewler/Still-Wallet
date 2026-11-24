@@ -9,6 +9,7 @@ import { Coin, TokenIcon } from './Icons'
 import type { Token } from '../tokens'
 import { arrangeAssets, type Asset, type AssetLayout } from '../assets'
 import { Rolling, useRolling } from './Charts'
+import { t } from '../i18n'
 
 export type Balance = { amount?: bigint; unavailable?: boolean }
 type Props = {
@@ -59,31 +60,31 @@ export function Overview({ mode, preferences, balances, refreshing, pulled, refr
 
   return <div className={toggled.current ? 'home home--mask-anim' : 'home'}>
     <div className="summary">
-    <section className="hero" aria-label="Portfolio balance">
-      <div className="hero-amount"><span key={String(hidden)} className="mask-swap mask-swap--hero">{hidden ? <span className="redacted">••••••</span> : total === undefined ? <span className="hero-amount--empty">Prices unavailable</span> : <BalanceAmount value={total} currency={preferences.currency} />}</span></div>
+    <section className="hero" aria-label={t('Portfolio balance')}>
+      <div className="hero-amount"><span key={String(hidden)} className="mask-swap mask-swap--hero">{hidden ? <span className="redacted">••••••</span> : total === undefined ? <span className="hero-amount--empty">{t('Prices unavailable')}</span> : <BalanceAmount value={total} currency={preferences.currency} />}</span></div>
       <div key={String(hidden)} className="hero-change mask-row">{mode === 'wallet' && !preferences.offline && dayChange !== undefined
-        ? hidden ? <span>Balances hidden</span> : <><span className={dayChange < 0 ? 'down' : 'up'}>{dayChange < 0 ? '−' : '+'}{formatFiat(Math.abs(dayChange), preferences.currency)}</span><span className={dayChange < 0 ? 'pill-down' : 'pill-up'}>{percentText(dayPercent)}</span><span>today</span></>
-        : <span>{mode === 'none' ? 'Set up a wallet to get started' : preferences.offline ? 'Network requests paused' : 'Total balance'}</span>}</div>
+        ? hidden ? <span>{t('Balances hidden')}</span> : <><span className={dayChange < 0 ? 'down' : 'up'}>{dayChange < 0 ? '−' : '+'}{formatFiat(Math.abs(dayChange), preferences.currency)}</span><span className={dayChange < 0 ? 'pill-down' : 'pill-up'}>{percentText(dayPercent)}</span><span>{t('today')}</span></>
+        : <span>{mode === 'none' ? t('Set up a wallet to get started') : preferences.offline ? t('Network requests paused') : t('Total balance')}</span>}</div>
     </section>
 
-    <div className="actions" role="group" aria-label="Wallet actions">
-      <button className="action" onClick={() => afterTap(() => openTransfer('receive'))}><span><QrCode size={22} /></span>Receive</button>
-      <button className="action" onClick={() => afterTap(() => openTransfer('send'))}><span><ArrowUp size={22} /></span>Send</button>
-      <button className="action" onClick={() => afterTap(swap)}><span><Shuffle size={22} /></span>Swap</button>
-      <button className="action action--desktop" onClick={() => afterTap(scramble)}><span><Box size={22} /></span>Scramble</button>
-      <button className={pulled ? 'action action--pulled' : 'action'} onClick={refresh} disabled={!canRefresh}><span><RefreshIcon size={21} spinning={refreshing && !pulled} /></span>Refresh</button>
+    <div className="actions" role="group" aria-label={t('Wallet actions')}>
+      <button className="action" onClick={() => afterTap(() => openTransfer('receive'))}><span><QrCode size={22} /></span>{t('Receive')}</button>
+      <button className="action" onClick={() => afterTap(() => openTransfer('send'))}><span><ArrowUp size={22} /></span>{t('Send')}</button>
+      <button className="action" onClick={() => afterTap(swap)}><span><Shuffle size={22} /></span>{t('Swap')}</button>
+      <button className="action action--desktop" onClick={() => afterTap(scramble)}><span><Box size={22} /></span>{t('Scramble')}</button>
+      <button className={pulled ? 'action action--pulled' : 'action'} onClick={refresh} disabled={!canRefresh}><span><RefreshIcon size={21} spinning={refreshing && !pulled} /></span>{t('Refresh')}</button>
     </div>
     </div>
 
     <aside className="home-side">
     {mode !== 'wallet' && <button className="promo" onClick={setup}>
       <span className="promo-icon">{mode === 'locked' ? <LockKeyhole size={21} /> : <Sparkles size={21} />}</span>
-      <span><strong>{mode === 'locked' ? 'Unlock your wallet' : 'No wallet yet'}</strong><small>{mode === 'locked' ? 'Your vault is encrypted on this device.' : 'Create or import a wallet to get started.'}</small></span>
+      <span><strong>{mode === 'locked' ? t('Unlock your wallet') : t('No wallet yet')}</strong><small>{mode === 'locked' ? t('Your vault is encrypted on this device.') : t('Create or import a wallet to get started.')}</small></span>
       <ChevronRight size={18} />
     </button>}
       {/* Desktop only: networks + privacy note */}
       <div className="side-card">
-        <div className="side-card-head"><h2>Networks</h2>{mode === 'wallet' ? <button type="button" className="text-link" onClick={manage}>Manage</button> : <a href="#networks" className="text-link">Manage</a>}</div>
+        <div className="side-card-head"><h2>{t('Networks')}</h2>{mode === 'wallet' ? <button type="button" className="text-link" onClick={manage}>{t('Manage')}</button> : <a href="#networks" className="text-link">{t('Manage')}</a>}</div>
         {networks.map((network) => <a key={network.id} href="#networks" className="side-network">
           <Coin chain={network.chain} /><span><strong>{network.name}</strong><small>{network.label}</small></span>
           <i className="dot dot--main" />
@@ -92,7 +93,7 @@ export function Overview({ mode, preferences, balances, refreshing, pulled, refr
     </aside>
 
     <section className="tokens" aria-labelledby="tokens-heading">
-      <div className="list-head"><h2 id="tokens-heading" className="list-title">Tokens</h2>{mode === 'wallet' && <button type="button" className="round-button small" onClick={manage} aria-label="Manage tokens"><SlidersHorizontal size={16} /></button>}</div>
+      <div className="list-head"><h2 id="tokens-heading" className="list-title">{t('Tokens')}</h2>{mode === 'wallet' && <button type="button" className="round-button small" onClick={manage} aria-label={t('Manage tokens')}><SlidersHorizontal size={16} /></button>}</div>
       <div className="token-list">
         {shown.map((asset, index) => {
           const network = networks.find((entry) => entry.id === asset.network)!
@@ -100,7 +101,7 @@ export function Overview({ mode, preferences, balances, refreshing, pulled, refr
           const quantity = `${displayTotal(state?.amount ?? 0n, asset.decimals)} ${asset.symbol}`
           const value = values[index]
           const where = asset.token ? network.name : network.label
-          const notice = state?.unavailable ? 'RPC unavailable' : preferences.offline && mode === 'wallet' ? 'Requests paused' : asset.chain === 'monero' && !state && mode === 'wallet' ? 'Scanning blocks…' : undefined
+          const notice = state?.unavailable ? t('RPC unavailable') : preferences.offline && mode === 'wallet' ? t('Requests paused') : asset.chain === 'monero' && !state && mode === 'wallet' ? t('Scanning blocks…') : undefined
           return <button key={asset.id} className="token" onClick={() => asset.token ? openToken(asset.token) : openAsset(network)}>
             {asset.token ? <TokenIcon token={asset.token} /> : <Coin chain={asset.chain} />}
             <span className="token-name"><strong>{asset.token ? asset.symbol : asset.name}</strong><small>{notice && !hidden ? notice : <>{where} · <span key={String(hidden)} className="mask-swap" style={{ animationDelay: `${index * 12}ms` }}>{hidden ? '••••' : quantity}</span></>}</small></span>
@@ -113,7 +114,7 @@ export function Overview({ mode, preferences, balances, refreshing, pulled, refr
       </div>
     </section>
 
-    <p className="trust-note"><ShieldCheck size={17} /><span>Self-custody · keys never leave this device</span></p>
+    <p className="trust-note"><ShieldCheck size={17} /><span>{t('Self-custody · keys never leave this device')}</span></p>
   </div>
 }
 

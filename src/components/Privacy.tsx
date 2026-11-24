@@ -4,6 +4,7 @@ import { Slot } from './Dialog'
 import { Brand } from './Icons'
 import { credits, dataSources, supporters, team } from '../credits'
 import './landing.css'
+import { t, tx } from '../i18n'
 
 const updated = 'November 19, 2026'
 
@@ -12,13 +13,13 @@ export function PrivacyPolicy({ mainRef, back }: { mainRef: Ref<HTMLElement>; ba
   return <div className="landing">
     <header className="landing-header">
       <div className="landing-container landing-header-inner">
-        <a className="landing-brand" href="/" aria-label="Still home"><Brand /></a>
-        <a className="button secondary landing-button" href={back}><ArrowLeft size={16} /> Back</a>
+        <a className="landing-brand" href="/" aria-label={t('Still home')}><Brand /></a>
+        <a className="button secondary landing-button" href={back}><ArrowLeft size={16} /> {t('Back')}</a>
       </div>
     </header>
 
     <main id="main-content" ref={mainRef} tabIndex={-1} className="landing-main landing-container policy">
-      <h1>Privacy Policy</h1>
+      <h1>{t('Privacy Policy')}</h1>
       <p className="policy-updated">Last updated {updated}</p>
 
       <p>Still Wallet (“Still”) is a self-custody crypto wallet made by ow2 and developed by vewler. You can use Still without an account. Your recovery phrase and wallet password stay on your device.</p>
@@ -40,6 +41,7 @@ export function PrivacyPolicy({ mainRef, back }: { mainRef: Ref<HTMLElement>; ba
       <ul>
         <li><strong>Network servers.</strong> The Still host forwards requests to the configured providers. It can see your IP address and request contents. Providers can see the wallet addresses, swap quotes, and signed transactions in those requests. If you set a custom RPC under <strong>Networks</strong>, it receives requests and your IP address directly. You can pause requests in <strong>Settings</strong>.</li>
         <li><strong>Helius.</strong> The Still host forwards Solana requests to Helius. Those requests can contain your Solana address and signed transactions, but not your IP address.</li>
+        <li><strong>WalletConnect.</strong> Only if you connect an app under <strong>Connected apps</strong>. Your device then talks to the WalletConnect relay directly, so it sees your IP address. Messages between Still and the app are end-to-end encrypted. Still turns off WalletConnect analytics.</li>
         <li><strong>CoinGecko.</strong> The Still host requests public market data using token identifiers, currency, and chart ranges. Those requests contain no wallet addresses.</li>
       </ul>
 
@@ -64,7 +66,7 @@ export function PrivacyPolicy({ mainRef, back }: { mainRef: Ref<HTMLElement>; ba
 
     <footer className="landing-footer landing-container">
       <span><strong>Still</strong></span>
-      <a href="/LICENSE.txt" target="_blank" rel="noreferrer">MIT License</a>
+      <a href="/LICENSE.txt" target="_blank" rel="noreferrer">{t('MIT License')}</a>
     </footer>
   </div>
 }
@@ -74,40 +76,40 @@ export function CreditsPage({ mainRef, back }: { mainRef: Ref<HTMLElement>; back
   return <div className="landing">
     <header className="landing-header">
       <div className="landing-container landing-header-inner">
-        <a className="landing-brand" href="/" aria-label="Still home"><Brand /></a>
-        <a className="button secondary landing-button" href={back}><ArrowLeft size={16} /> Back</a>
+        <a className="landing-brand" href="/" aria-label={t('Still home')}><Brand /></a>
+        <a className="button secondary landing-button" href={back}><ArrowLeft size={16} /> {t('Back')}</a>
       </div>
     </header>
 
     <main id="main-content" ref={mainRef} tabIndex={-1} className="landing-main landing-container policy">
-      <h1>Credits</h1>
-      <p><strong>Still Wallet</strong> by ow2. Open source under the MIT License.</p>
+      <h1>{t('Credits')}</h1>
+      <p>{t('Still Wallet by ow2')}. {t('Open source under the MIT License.')}</p>
 
-      <h2>Made by</h2>
+      <h2>{t('Made by')}</h2>
       <ul className="credits-page-list">
-        {team.map(([name, role]) => <li key={name}><span>{name}<br /><small>{role}</small></span></li>)}
+        {team.map(([name, role]) => <li key={name}><span>{name}<br /><small>{t(role)}</small></span></li>)}
       </ul>
 
-      <h2>Supported by</h2>
+      <h2>{t('Supported by')}</h2>
       <ul className="credits-page-list">
-        {supporters.map(([name, role]) => <li key={name}><span>{name}<br /><small>{role}</small></span></li>)}
+        {supporters.map(([name, role]) => <li key={name}><span>{name}<br /><small>{t(role)}</small></span></li>)}
       </ul>
 
-      <h2>Data from</h2>
+      <h2>{t('Data from')}</h2>
       <ul className="credits-page-list">
-        {dataSources.map(([name, kind, use]) => <li key={name}><span>{name}<br /><small>{use}</small></span><em>{kind}</em></li>)}
+        {dataSources.map(([name, kind, use]) => <li key={name}><span>{name}<br /><small>{t(use)}</small></span><em>{t(kind)}</em></li>)}
       </ul>
 
-      <h2>Built with</h2>
+      <h2>{t('Built with')}</h2>
       <ul className="credits-page-list">
-        {credits.map(([name, license, use]) => <li key={name}><span>{name}<br /><small>{use}</small></span><em>{license}</em></li>)}
+        {credits.map(([name, license, use]) => <li key={name}><span>{name}<br /><small>{t(use)}</small></span><em>{license}</em></li>)}
       </ul>
-      <p>Thanks to everyone who maintains these projects.</p>
+      <p>{t('Thanks to everyone who maintains these projects.')}</p>
     </main>
 
     <footer className="landing-footer landing-container">
       <span><strong>Still</strong></span>
-      <a href="/LICENSE.txt" target="_blank" rel="noreferrer">MIT License</a>
+      <a href="/LICENSE.txt" target="_blank" rel="noreferrer">{t('MIT License')}</a>
     </footer>
   </div>
 }
@@ -132,25 +134,25 @@ export function FaqPage({ mainRef, back }: { mainRef: Ref<HTMLElement>; back: st
   return <div className="landing">
     <header className="landing-header">
       <div className="landing-container landing-header-inner">
-        <a className="landing-brand" href="/" aria-label="Still home"><Brand /></a>
-        <a className="button secondary landing-button" href={back}><ArrowLeft size={16} /> Back</a>
+        <a className="landing-brand" href="/" aria-label={t('Still home')}><Brand /></a>
+        <a className="button secondary landing-button" href={back}><ArrowLeft size={16} /> {t('Back')}</a>
       </div>
     </header>
 
     <main id="main-content" ref={mainRef} tabIndex={-1} className="landing-main landing-container policy">
-      <h1>FAQ</h1>
+      <h1>{t('FAQ')}</h1>
       <ul className="faq-list">
         {faq.map(([question, answer], index) => <li key={question} className={open === index ? 'open' : undefined}>
-          <button type="button" aria-expanded={open === index} onClick={() => setOpen(open === index ? undefined : index)}>{question}<ChevronDown size={18} /></button>
-          <Slot open={open === index}><p>{answer}</p></Slot>
+          <button type="button" aria-expanded={open === index} onClick={() => setOpen(open === index ? undefined : index)}>{t(question)}<ChevronDown size={18} /></button>
+          <Slot open={open === index}><p>{t(answer)}</p></Slot>
         </li>)}
       </ul>
-      <p>Still stuck? DM <strong>@vewler</strong> on Discord.</p>
+      <p>{tx('Still stuck? DM {name} on Discord.', { name: <strong>@vewler</strong> })}</p>
     </main>
 
     <footer className="landing-footer landing-container">
       <span><strong>Still</strong></span>
-      <a href="/LICENSE.txt" target="_blank" rel="noreferrer">MIT License</a>
+      <a href="/LICENSE.txt" target="_blank" rel="noreferrer">{t('MIT License')}</a>
     </footer>
   </div>
 }
@@ -161,19 +163,19 @@ export function ErrorPage({ mainRef, kind }: { mainRef: Ref<HTMLElement>; kind: 
   return <div className="landing">
     <header className="landing-header">
       <div className="landing-container landing-header-inner">
-        <a className="landing-brand" href="/" aria-label="Still home"><Brand /></a>
+        <a className="landing-brand" href="/" aria-label={t('Still home')}><Brand /></a>
       </div>
     </header>
 
     <main id="main-content" ref={mainRef} tabIndex={-1} className="landing-main landing-container policy not-found">
-      <h1>{title}</h1>
-      <p>{text}</p>
-      <a className="button primary landing-button landing-button--big" href="/"><ArrowLeft size={18} /> Back to Still</a>
+      <h1>{t(title)}</h1>
+      <p>{t(text)}</p>
+      <a className="button primary landing-button landing-button--big" href="/"><ArrowLeft size={18} /> {t('Back to Still')}</a>
     </main>
 
     <footer className="landing-footer landing-container">
       <span><strong>Still</strong></span>
-      <a href="/LICENSE.txt" target="_blank" rel="noreferrer">MIT License</a>
+      <a href="/LICENSE.txt" target="_blank" rel="noreferrer">{t('MIT License')}</a>
     </footer>
   </div>
 }

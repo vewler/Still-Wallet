@@ -1,4 +1,5 @@
-import { networks, type Environment, type NetworkId, validateEndpoint } from './networks'
+import { importNetworks, networks, type Environment, type NetworkId, validateEndpoint } from './networks'
+import { cleanLabel, type UserToken } from './tokens'
 
 export const VAULT_KEY = 'still.vault.v1'
 const SETTINGS_KEY = 'still.preferences.v1'
@@ -28,10 +29,14 @@ export type ActivityItem = {
   status: 'submitted' | 'confirmed' | 'failed' | 'unknown' | 'expired'
   lastValidBlockHeight?: number
   lastLedgerSequence?: number
+  /** Sender, for chains that look transactions up by sender (NEAR). */
+  from?: string
   asset?: string
   destinationTag?: number
-  kind?: 'swap' | 'approval'
+  kind?: 'swap' | 'approval' | 'dapp'
   receive?: { amount: string; minimum: string; symbol: string }
+  /** Connected app that asked for it. */
+  app?: string
 }
 
 function read<T>(key: string, fallback: T): T {
@@ -262,4 +267,75 @@ export function readAssetLayout(walletId: string, fallback: { order: string[]; s
 
 export function saveAssetLayout(walletId: string, value: { order: string[]; shown: string[] }) {
   localStorage.setItem(layoutKey(walletId), JSON.stringify(value))
+}
+
+/* Per-wallet imported and found tokens. Public token info only. */
+const TOKENS_PREFIX = 'still.tokens.v1.'
+
+export function readUserTokens(walletId: string): UserToken[] {
+  const value = read<unknown>(TOKENS_PREFIX + walletId, [])
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry): UserToken[] => {
+    if (!entry || typeof entry !== 'object') return []
+    const { network, contract, symbol, name, decimals, user, verified } = entry as Record<string, unknown>
+    if (typeof network !== 'string' || !importNetworks.includes(network as NetworkId) || typeof contract !== 'string' || !/^(?:0x[\da-fA-F]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})$/.test(contract)) return []
+    if (typeof decimals !== 'number' || !Number.isInteger(decimals) || decimals < 0 || decimals > 36) return []
+    const cleanSymbol = cleanLabel(symbol, 12)
+    if (!cleanSymbol) return []
+    return [{ network: network as NetworkId, contract, symbol: cleanSymbol, name: cleanLabel(name, 40) || cleanSymbol, decimals, user: user === 'found' ? 'found' : 'custom', verified: verified === true }]
+  }).slice(0, 200)
+}
+
+export function saveUserTokens(walletId: string, list: UserToken[]) {
+  localStorage.setItem(TOKENS_PREFIX + walletId, JSON.stringify(list))
+}
+
+/* Address book. Shared by every wallet in the vault, encrypted with the vault key like activity. */
+const CONTACTS_PREFIX = 'still.contacts.v1.'
+export type Contact = { id: string; name: string; emoji?: string; address: string; network: NetworkId }
+const contacts = new Map<string, { key: CryptoKey; items: Contact[] }>()
+const contactsData = (vault: string) => new TextEncoder().encode(`still/contacts/1/${vault}`)
+
+export function normalizeContactName(value: string) {
+  return value.replace(/\s+/g, ' ').trim().slice(0, 32)
+}
+
+function validContacts(value: unknown): Contact[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry): Contact[] => {
+    if (!entry || typeof entry !== 'object') return []
+    const { id, name, emoji, address, network } = entry as Record<string, unknown>
+    if (typeof id !== 'string' || typeof name !== 'string' || typeof address !== 'string' || typeof network !== 'string' || !Object.hasOwn(networks, network)) return []
+    const clean = normalizeContactName(name)
+    if (!clean || !address.trim()) return []
+    return [{ id, name: clean, address: address.trim().slice(0, 100), network: network as NetworkId, ...(typeof emoji === 'string' && isWalletEmoji(emoji) ? { emoji } : {}) }]
+  }).slice(0, 500)
+}
+
+export async function loadContacts(vault: string, key: CryptoKey) {
+  const stored = read<{ iv?: string; data?: string } | null>(CONTACTS_PREFIX + vault, null)
+  let items: Contact[] = []
+  if (stored?.iv && stored.data) {
+    try {
+      const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromBase64(stored.iv), additionalData: contactsData(vault) }, key, fromBase64(stored.data))
+      items = validContacts(JSON.parse(new TextDecoder().decode(plain)))
+    } catch { /* Unreadable book starts empty. */ }
+  }
+  contacts.set(vault, { key, items })
+  return items
+}
+
+export async function saveContacts(vault: string, items: Contact[]) {
+  const entry = contacts.get(vault)
+  if (!entry) throw new Error('Unlock the wallet to edit contacts.')
+  entry.items = items
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: contactsData(vault) }, entry.key, new TextEncoder().encode(JSON.stringify(items)))
+  localStorage.setItem(CONTACTS_PREFIX + vault, JSON.stringify({ iv: toBase64(iv), data: toBase64(new Uint8Array(data)) }))
+  return items
+}
+
+/** Clear decrypted contacts on lock. */
+export function forgetContacts() {
+  contacts.clear()
 }

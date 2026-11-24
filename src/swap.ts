@@ -80,7 +80,11 @@ export async function quoteSwap(network: Network, endpoint: string, owner: strin
 
 const blockchains: Partial<Record<NetworkId, string>> = {
   'bitcoin-main': 'btc', 'ethereum-main': 'eth', 'solana-main': 'sol', 'bnb-main': 'bsc', 'xrp-main': 'xrp', 'base-main': 'base',
+  'dogecoin-main': 'doge', 'tron-main': 'tron', 'litecoin-main': 'ltc', 'bitcoincash-main': 'bch', 'zcash-main': 'zec', 'avalanche-main': 'avax', 'polygon-main': 'pol', 'arbitrum-main': 'arb', 'optimism-main': 'op', 'scroll-main': 'scroll',
+  'sui-main': 'sui', 'aptos-main': 'aptos', 'cardano-main': 'cardano',
 }
+/** Some chains list the native coin with its on-chain type as the contract. */
+const nativeContracts = new Set(['0x2::sui::sui', '0x0000000000000000000000000000000000000000000000000000000000000002::sui::sui', '0x1::aptos_coin::aptoscoin', '0xa'])
 type IntentAsset = { assetId: string; blockchain: string; symbol: string; decimals: number; contractAddress?: string }
 let intentAssets: Promise<IntentAsset[]> | undefined
 
@@ -109,7 +113,7 @@ async function intentAsset(asset: string, signal: AbortSignal) {
   const list = await intentAssets
   const chain = blockchains[network.id]
   const match = list.filter((item) => item.blockchain === chain && !/deprecated/i.test(item.symbol) &&
-    (token ? item.contractAddress?.toLowerCase() === token.contract.toLowerCase() : !item.contractAddress && item.symbol === network.symbol))
+    (token ? item.contractAddress?.toLowerCase() === token.contract.toLowerCase() : (!item.contractAddress || nativeContracts.has(item.contractAddress.toLowerCase())) && item.symbol === network.symbol))
     .sort((left, right) => Number(right.assetId.startsWith('nep141:')) - Number(left.assetId.startsWith('nep141:')))[0]
   if (!match || match.decimals !== (token?.decimals ?? network.decimals)) throw new Error(`${token?.symbol ?? network.symbol} on ${network.name} can't be swapped right now.`)
   return match
@@ -139,7 +143,7 @@ export async function quoteCrossSwap(addresses: Addresses, sellId: string, buyId
     deadline: new Date(Date.now() + 30 * 60_000).toISOString(),
   })
   if (!quote.depositAddress) throw new Error('The swap service did not return a deposit address. Try again.')
-  if (quote.depositMemo && sellNetwork.chain !== 'xrp') throw new Error('This swap needs a memo Still can’t send yet.')
+  if (quote.depositMemo && sellNetwork.chain !== 'xrp' && !sellNetwork.memo) throw new Error('This swap needs a memo Still can’t send yet.')
   const depositAddress = quote.depositAddress
   const base = await transfer(sellNetwork, depositAddress, formatAmount(input, sell?.decimals ?? sellNetwork.decimals), sell?.id, quote.depositMemo)
   const outputDecimals = buy?.decimals ?? buyNetwork.decimals

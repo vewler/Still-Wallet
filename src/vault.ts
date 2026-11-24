@@ -4,9 +4,14 @@ import { mnemonicToAccount } from 'viem/accounts'
 import { createKeyPairSignerFromPrivateKeyBytes } from '@solana/kit'
 import { VAULT_KEY, activeAccount } from './storage'
 import type { Addresses } from './networks'
-import { bitcoinAddress, bitcoinKey, xrpAddress, xrpKey } from './keys'
+import { bitcoinAddress, bitcoinCashAddress, dashAddress, kaspaAddress, zcashAddress, dogecoinAddress, litecoinAddress, publicKeys, tronAddress, xrpAddress } from './keys'
 import { passwordRules } from './passwords'
 import { moneroKeys } from './monero'
+import { ed25519 } from '@noble/curves/ed25519.js'
+import { blake2b } from '@noble/hashes/blake2.js'
+import { sha3_256 } from '@noble/hashes/sha3.js'
+import { bytesToHex } from '@noble/hashes/utils.js'
+import { l1Addresses } from './l1/index'
 
 const iterations = 600_000
 const version = 1
@@ -117,6 +122,31 @@ export async function moneroWallet(phrase: string, account = 0) {
   try { return moneroKeys(key) } finally { key.fill(0) }
 }
 
+/** Sui m/44'/784'/account'/0'/0', the Sui Wallet and Slush path. Returns the 32-byte ed25519 secret. */
+export function suiKey(phrase: string, account = 0) {
+  return ed25519Key(phrase, [44, 784, account, 0, 0])
+}
+
+/** Aptos m/44'/637'/account'/0'/0', the Petra path. */
+export function aptosKey(phrase: string, account = 0) {
+  return ed25519Key(phrase, [44, 637, account, 0, 0])
+}
+
+/** 0x + blake2b-256(flag 0x00 + public key). */
+export function suiAddress(publicKey: Uint8Array) {
+  return '0x' + bytesToHex(blake2b(Uint8Array.from([0, ...publicKey]), { dkLen: 32 }))
+}
+
+/** 0x + sha3-256(public key + scheme 0x00). */
+export function aptosAddress(publicKey: Uint8Array) {
+  return '0x' + bytesToHex(sha3_256(Uint8Array.from([...publicKey, 0])))
+}
+
+async function ed25519Public(secret: Promise<Uint8Array>) {
+  const key = await secret
+  try { return ed25519.getPublicKey(key) } finally { key.fill(0) }
+}
+
 async function deriveActivityKey(mnemonic: string, vault: string) {
   const bytes = encoder.encode(mnemonic)
   try {
@@ -131,9 +161,16 @@ async function deriveActivityKey(mnemonic: string, vault: string) {
 async function sessionFor(vault: string, mnemonic: string, account = 0): Promise<Session> {
   if (!Number.isInteger(account) || account < 0 || account >= 100) throw new Error('Invalid wallet.')
   const ethereum = evmAccount(mnemonic, account).address
-  const [solanaKey, btc, xrp, xmr, activityKey] = await Promise.all([solanaKeypair(mnemonic, account), bitcoinKey(mnemonic, account), xrpKey(mnemonic, account), moneroWallet(mnemonic, account), deriveActivityKey(mnemonic, vault)])
-  const addresses = { ethereum, solana: solanaKey.address, bitcoin: bitcoinAddress(btc.publicKey!), xrp: xrpAddress(xrp.publicKey!), monero: xmr.address }
-  btc.wipePrivateData(); xrp.wipePrivateData()
+  const [solanaKey, keys, xmr, activityKey, sui, aptos, l1] = await Promise.all([
+    solanaKeypair(mnemonic, account), publicKeys(mnemonic, account), moneroWallet(mnemonic, account), deriveActivityKey(mnemonic, vault),
+    ed25519Public(suiKey(mnemonic, account)), ed25519Public(aptosKey(mnemonic, account)), l1Addresses(mnemonic, account),
+  ])
+  const addresses = {
+    ethereum, solana: solanaKey.address, bitcoin: bitcoinAddress(keys.bitcoin), xrp: xrpAddress(keys.xrp), monero: xmr.address,
+    litecoin: litecoinAddress(keys.litecoin), dogecoin: dogecoinAddress(keys.dogecoin), tron: tronAddress(keys.tron),
+    sui: suiAddress(sui), aptos: aptosAddress(aptos), aptosPublicKey: bytesToHex(aptos), ...l1,
+    bitcoincash: bitcoinCashAddress(keys.bitcoincash), dash: dashAddress(keys.dash), zcash: zcashAddress(keys.zcash), kaspa: kaspaAddress(keys.kaspa),
+  }
   return { id: account ? `${vault}:${account}` : vault, vault, account, mnemonic, addresses, activityKey }
 }
 
@@ -201,6 +238,48 @@ export async function unlockVault(password: string) {
   return session
 }
 
+/** Re-encrypt the saved phrase with a new password. The old vault stays in place until the new one is built and checked, then one write swaps it. Same id, so names, activity and Face ID unlock keep working. */
+export async function changePassword(vaultId: string, current: string, next: string) {
+  assertSecure()
+  const missing = passwordRules.filter((rule) => !rule.test(next))
+  if (missing.length) throw new Error('Your new password doesn’t meet all the requirements yet.')
+  if (next.length > 256) throw new Error('Use a password of at most 256 characters.')
+  const raw = localStorage.getItem(VAULT_KEY)
+  if (!raw) throw new Error('No wallet is saved in this browser.')
+  let vault: StoredVault
+  let plaintext: Uint8Array<ArrayBuffer> | undefined
+  try {
+    vault = JSON.parse(raw) as StoredVault
+    if (vault.version !== version || vault.id !== vaultId) throw new Error('Invalid vault.')
+    const key = await deriveKey(current, decode(vault.salt))
+    plaintext = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: decode(vault.iv), additionalData: associatedData(vault.id) }, key, decode(vault.data)))
+    if (!validPhrase(new TextDecoder().decode(plaintext))) throw new Error('Invalid vault.')
+  } catch {
+    plaintext?.fill(0)
+    throw new Error('Incorrect password')
+  }
+  try {
+    const salt = crypto.getRandomValues(new Uint8Array(16))
+    const iv = crypto.getRandomValues(new Uint8Array(12))
+    const key = await deriveKey(next, salt)
+    const data = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: associatedData(vault.id) }, key, plaintext))
+    // Prove the new copy opens before touching the saved one.
+    const check = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv, additionalData: associatedData(vault.id) }, key, data))
+    const same = check.length === plaintext.length && check.every((byte, index) => byte === plaintext![index])
+    check.fill(0)
+    if (!same) throw new Error('The password could not be changed. Nothing was changed.')
+    const updated: StoredVault = { version, id: vault.id, salt: encode(salt), iv: encode(iv), data: encode(data) }
+    const save = () => {
+      if (localStorage.getItem(VAULT_KEY) !== raw) throw new Error('The saved wallet changed. Try again.')
+      localStorage.setItem(VAULT_KEY, JSON.stringify(updated))
+    }
+    if (navigator.locks) await navigator.locks.request(VAULT_KEY, save)
+    else save()
+  } finally {
+    plaintext.fill(0)
+  }
+}
+
 export async function removeVault(walletId: string) {
   const remove = () => {
     const raw = localStorage.getItem(VAULT_KEY)
@@ -209,4 +288,11 @@ export async function removeVault(walletId: string) {
   }
   if (navigator.locks) await navigator.locks.request(VAULT_KEY, remove)
   else remove()
+}
+
+/** Open the saved vault with a phrase from passkey unlock. */
+export async function passkeySession(id: string, phrase: string) {
+  const raw = localStorage.getItem(VAULT_KEY)
+  if (!raw || JSON.parse(raw).id !== id || !validPhrase(phrase)) throw new Error('Face ID didn’t work. Use your password.')
+  return sessionFor(id, phrase, activeAccount(id))
 }

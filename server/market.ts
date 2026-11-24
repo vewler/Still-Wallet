@@ -1,4 +1,4 @@
-import { networks } from '../src/networks.ts'
+import { networks, pricePlatforms, type NetworkId } from '../src/networks.ts'
 import { tokenPriceIds } from '../src/tokens.ts'
 
 const ids = [...new Set([...Object.values(networks).map((network) => network.priceId), ...tokenPriceIds()])].sort()
@@ -30,13 +30,21 @@ export function createMarket(env: NodeJS.ProcessEnv, request: typeof fetch) {
 
   return async (path: string, method: string | undefined): Promise<MarketResult> => {
     if (method !== 'GET') return reject(405)
-    if (path.length > 256) return reject(400)
+    if (path.length > 900) return reject(400)
     const url = new URL(path, 'http://localhost')
     const currency = url.searchParams.get('currency') ?? ''
     if (!currencies.has(currency)) return reject(400)
     let upstream: string
     let ttl = 120_000
-    if (url.pathname === '/api/market/prices') {
+    if (url.pathname === '/api/market/token-prices') {
+      // Imported tokens, priced by contract. Tells Still whether CoinGecko lists them.
+      const network = url.searchParams.get('network') ?? ''
+      const platform = Object.hasOwn(pricePlatforms, network) ? pricePlatforms[network as NetworkId] : undefined
+      const contracts = (url.searchParams.get('contracts') ?? '').split(',')
+      if (!platform || !contracts.length || contracts.length > 10 || contracts.some((contract) => !/^(?:0x[\da-fA-F]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})$/.test(contract))) return reject(400)
+      const list = [...new Set(contracts.map((contract) => contract.startsWith('0x') ? contract.toLowerCase() : contract))].sort().join(',')
+      upstream = `/simple/token_price/${platform}?contract_addresses=${list}&vs_currencies=${currency}&include_24hr_change=true`
+    } else if (url.pathname === '/api/market/prices') {
       upstream = `/simple/price?ids=${ids.join(',')}&vs_currencies=${currency}&include_24hr_change=true`
     } else if (url.pathname === '/api/market/sparklines') {
       upstream = `/coins/markets?ids=${ids.join(',')}&vs_currency=${currency}&sparkline=true`

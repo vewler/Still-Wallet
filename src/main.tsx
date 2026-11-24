@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client'
 import '@fontsource-variable/inter/wght.css'
 import './styles.css'
 import App from './App'
+import { languageReady, t } from './i18n'
 
 // Touch = phone layout. Mouse/trackpad = desktop at 590px+, phone below that (switches live on resize).
 // ?view=phone or ?view=desktop forces one.
@@ -19,7 +20,7 @@ document.addEventListener('invalid', (event) => {
   event.preventDefault()
   const box = field.closest('.field') as HTMLElement | null
   if (!box) return
-  const message = field.validity.valueMissing ? 'This field is required.' : field.validity.tooShort ? `Enter at least ${field.minLength} characters.` : field.validationMessage
+  const message = field.validity.valueMissing ? t('This field is required.') : field.validity.tooShort ? t('Enter at least {count} characters.', { count: field.minLength }) : field.validationMessage
   // Same field failing again: keep the message, just shake it again.
   box.removeAttribute('data-error')
   void box.offsetWidth
@@ -53,4 +54,5 @@ document.addEventListener('pointerdown', (event) => {
 // Only the icon's own animationend clears the tap.
 document.addEventListener('animationend', (event) => { const target = event.target as Element; if (target instanceof SVGSVGElement) target.classList.remove('tap') })
 
-createRoot(document.getElementById('root')!).render(<App />)
+// Load the saved or device language first so the first paint is already translated.
+void languageReady.then(() => createRoot(document.getElementById('root')!).render(<App />))

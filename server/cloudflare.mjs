@@ -12,6 +12,8 @@ const gateway = createGateway(
   (input, options) => globalThis.fetch(input, {
     ...options, redirect: 'manual',
     ...(String(input).includes('coingecko.com') ? { cf: { cacheEverything: true, cacheTtl: 120, cacheTtlByStatus: { '200-299': 120, '400-599': 0 } } } : {}),
+    // Token lists for discovery: short edge cache, these APIs rate-limit shared IPs too.
+    ...(/blockscout\.com|routescan\.io|trongrid\.io|pancakeswap\.finance|tokens\.uniswap\.org/.test(String(input)) ? { cf: { cacheEverything: true, cacheTtl: 60, cacheTtlByStatus: { '200-299': 60, '400-599': 0 } } } : {}),
   }),
 )
 const monero = moneroUpstream(process.env, networks['monero-main'].rpc)
