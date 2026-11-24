@@ -1,6 +1,6 @@
 import { encodeFunctionData, erc20Abi, getAddress, parseAbi } from 'viem'
-import { formatAmount, parseAmount, type Network } from './networks'
-import { evmClient, quoteEvm } from './rpc'
+import { addressFor, crossNetworks, formatAmount, networks, parseAmount, type Addresses, type Network, type NetworkId } from './networks'
+import { evmClient, quoteEvm, type Quote } from './rpc'
 import { tokenById } from './tokens'
 
 const routerAbi = parseAbi([
@@ -76,4 +76,89 @@ export async function quoteSwap(network: Network, endpoint: string, owner: strin
     to: router, value: display, asset: sell?.id, kind: 'swap',
     receive: { amount: formatAmount(best.output, outputDecimals), minimum: formatAmount(minimum, outputDecimals), symbol: buy?.symbol ?? network.symbol, slippage: chosen, auto: !slippage, impact },
   })
+}
+
+const blockchains: Partial<Record<NetworkId, string>> = {
+  'bitcoin-main': 'btc', 'ethereum-main': 'eth', 'solana-main': 'sol', 'bnb-main': 'bsc', 'xrp-main': 'xrp', 'base-main': 'base',
+}
+type IntentAsset = { assetId: string; blockchain: string; symbol: string; decimals: number; contractAddress?: string }
+let intentAssets: Promise<IntentAsset[]> | undefined
+
+async function swapApi<T>(path: string, signal: AbortSignal, body?: unknown): Promise<T> {
+  const response = await fetch(`/api/swap/${path}`, {
+    method: body ? 'POST' : 'GET', signal, cache: 'no-store', credentials: 'omit',
+    headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined,
+  })
+  const data = await response.json().catch(() => undefined)
+  if (!response.ok) {
+    const message = typeof data?.message === 'string' ? data.message : ''
+    throw new Error(message && message.length < 160 ? `Swap unavailable: ${message[0].toLowerCase()}${message.slice(1).replace(/\.?$/, '.')}` : 'The swap service could not quote this pair. Try again soon.')
+  }
+  return data as T
+}
+
+/** The asset's network: tokens carry it, a native coin's id is the network id. */
+export function assetNetwork(asset: string) {
+  return networks[(tokenById(asset)?.network ?? asset) as NetworkId]
+}
+
+async function intentAsset(asset: string, signal: AbortSignal) {
+  const network = assetNetwork(asset)
+  const token = tokenById(asset)
+  intentAssets ??= swapApi<IntentAsset[]>('tokens', signal).catch((error) => { intentAssets = undefined; throw error })
+  const list = await intentAssets
+  const chain = blockchains[network.id]
+  const match = list.filter((item) => item.blockchain === chain && !/deprecated/i.test(item.symbol) &&
+    (token ? item.contractAddress?.toLowerCase() === token.contract.toLowerCase() : !item.contractAddress && item.symbol === network.symbol))
+    .sort((left, right) => Number(right.assetId.startsWith('nep141:')) - Number(left.assetId.startsWith('nep141:')))[0]
+  if (!match || match.decimals !== (token?.decimals ?? network.decimals)) throw new Error(`${token?.symbol ?? network.symbol} on ${network.name} can't be swapped right now.`)
+  return match
+}
+
+type IntentQuote = { quote: { depositAddress?: string; depositMemo?: string; amountOut: string; minAmountOut: string; amountInUsd?: string; amountOutUsd?: string; timeEstimate?: number } }
+
+/** Any-to-any swap through NEAR Intents: send the coins to a one-time deposit address, the swapped coins land in this wallet.
+ *  `transfer` builds the normal send to that address, so signing is the same as Send. */
+export async function quoteCrossSwap(addresses: Addresses, sellId: string, buyId: string, amount: string, signal: AbortSignal, slippage: number,
+  transfer: (network: Network, to: string, amount: string, asset?: string, tag?: string) => Promise<Quote>) {
+  if (!slippageOptions.includes(slippage)) throw new Error('Choose a supported slippage.')
+  if (sellId === buyId) throw new Error('Pick two different coins.')
+  const sellNetwork = assetNetwork(sellId)
+  const buyNetwork = assetNetwork(buyId)
+  if (!crossNetworks.includes(sellNetwork?.id) || !crossNetworks.includes(buyNetwork?.id)) throw new Error('Pick coins on a supported network.')
+  const sell = tokenById(sellId)
+  const buy = tokenById(buyId)
+  const input = parseAmount(amount, sell?.decimals ?? sellNetwork.decimals)
+  const [origin, destination] = await Promise.all([intentAsset(sellId, signal), intentAsset(buyId, signal)])
+  const chosen = slippage || (sell && buy && stablecoins.includes(sell.symbol) && stablecoins.includes(buy.symbol) ? 50 : 100)
+  const { quote } = await swapApi<IntentQuote>('quote', signal, {
+    dry: false, swapType: 'EXACT_INPUT', slippageTolerance: chosen,
+    originAsset: origin.assetId, depositType: 'ORIGIN_CHAIN', destinationAsset: destination.assetId, amount: input.toString(),
+    refundTo: addressFor(sellNetwork, addresses), refundType: 'ORIGIN_CHAIN',
+    recipient: addressFor(buyNetwork, addresses), recipientType: 'DESTINATION_CHAIN',
+    deadline: new Date(Date.now() + 30 * 60_000).toISOString(),
+  })
+  if (!quote.depositAddress) throw new Error('The swap service did not return a deposit address. Try again.')
+  if (quote.depositMemo && sellNetwork.chain !== 'xrp') throw new Error('This swap needs a memo Still can’t send yet.')
+  const depositAddress = quote.depositAddress
+  const base = await transfer(sellNetwork, depositAddress, formatAmount(input, sell?.decimals ?? sellNetwork.decimals), sell?.id, quote.depositMemo)
+  const outputDecimals = buy?.decimals ?? buyNetwork.decimals
+  const usdIn = Number(quote.amountInUsd)
+  const usdOut = Number(quote.amountOutUsd)
+  const impact = usdIn > 0 && usdOut > 0 ? Math.max(0, 1 - usdOut / usdIn) : undefined
+  return {
+    ...base, kind: 'swap' as const, via: 'NEAR Intents deposit', eta: quote.timeEstimate,
+    receive: { amount: formatAmount(BigInt(quote.amountOut), outputDecimals), minimum: formatAmount(BigInt(quote.minAmountOut), outputDecimals), symbol: buy?.symbol ?? buyNetwork.symbol, network: buyNetwork.name, slippage: chosen, auto: !slippage, impact },
+    sign: async (session: Parameters<Quote['sign']>[0]) => {
+      const signed = await base.sign(session)
+      return {
+        ...signed,
+        broadcast: async () => {
+          await signed.broadcast()
+          // Speeds up pickup. The deposit is found without it, so failures don't matter.
+          void swapApi('submit', AbortSignal.timeout(15_000), { txHash: signed.hash, depositAddress }).catch(() => undefined)
+        },
+      }
+    },
+  } satisfies Quote
 }

@@ -92,7 +92,7 @@ export function Overview({ mode, preferences, balances, refreshing, pulled, refr
     </aside>
 
     <section className="tokens" aria-labelledby="tokens-heading">
-      <div className="list-head"><h2 id="tokens-heading" className="list-title">Tokens</h2>{mode === 'wallet' && <button type="button" className="round-button small" onClick={() => afterTap(manage)} aria-label="Manage tokens"><SlidersHorizontal size={16} /></button>}</div>
+      <div className="list-head"><h2 id="tokens-heading" className="list-title">Tokens</h2>{mode === 'wallet' && <button type="button" className="round-button small" onClick={manage} aria-label="Manage tokens"><SlidersHorizontal size={16} /></button>}</div>
       <div className="token-list">
         {shown.map((asset, index) => {
           const network = networks.find((entry) => entry.id === asset.network)!

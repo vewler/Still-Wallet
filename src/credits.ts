@@ -1,11 +1,17 @@
 /** Credits, shown in the wallet and on the about page. */
 export const team = [
   ['vewler', 'Main developer'],
-  ['Layton J', 'Tester'],
+  ['Layton J.', 'Tester'],
 ] as const
 
 export const supporters = [
-  ['Michelangelo P', 'Donor'],
+  ['Michelangelo P.', 'Donor'],
+] as const
+
+/** Outside data providers. */
+export const dataSources = [
+  ['CoinGecko', 'API', 'Prices and charts'],
+  ['Helius', 'RPC', 'Solana network'],
 ] as const
 
 /** Open source deps, shown in Settings > Credits and on the landing page. */

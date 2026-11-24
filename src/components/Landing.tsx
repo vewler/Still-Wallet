@@ -144,7 +144,7 @@ export function Landing({ mode, mainRef, openWallet }: LandingProps) {
   return <div className="landing" ref={root}>
     <header className={`landing-header${scrolled ? ' is-scrolled' : ''}`}>
       <div className="landing-container landing-header-inner">
-        <a className="landing-brand" href="/" aria-label="Still home" onClick={(event) => { if (['/', '/about'].includes(location.pathname)) { event.preventDefault(); navTarget.current = null; smoothScrollTo(0) } }}><Brand attribution /></a>
+        <a className="landing-brand" href="/" aria-label="Still home" onClick={(event) => { if (['/', '/about'].includes(location.pathname)) { event.preventDefault(); navTarget.current = null; smoothScrollTo(0) } }}><Brand /></a>
         <nav aria-label="Site" className="landing-nav">
           <a className="landing-nav-link" aria-current={active === 'features' ? 'true' : undefined} href="#features" onClick={scrollToSection('features')}>Features</a>
           <a className="landing-nav-link" aria-current={active === 'security-section' ? 'true' : undefined} href="#security-section" onClick={scrollToSection('security-section')}>Security</a>
@@ -249,7 +249,7 @@ export function Landing({ mode, mainRef, openWallet }: LandingProps) {
     </main>
 
     <footer className="landing-footer landing-container">
-      <span><strong>Still</strong> by ow2 <small className="landing-build">build {import.meta.env.VITE_BUILD}</small></span>
+      <span><strong>Still</strong> <small className="landing-build">build {import.meta.env.VITE_BUILD}</small></span>
       <span className="landing-footer-links"><a href="#faq">FAQ</a><a href="#credits">Credits</a><a href="#privacy">Privacy Policy</a><a href="/LICENSE.txt" target="_blank" rel="noreferrer">MIT License</a></span>
     </footer>
   </div>
@@ -269,8 +269,8 @@ function PhoneMockup() {
       frame = requestAnimationFrame(() => {
         const x = event.clientX / innerWidth - .5
         const y = event.clientY / innerHeight - .5
-        element.style.setProperty('--tilt-x', `${(-y * 7.5).toFixed(2)}deg`)
-        element.style.setProperty('--tilt-y', `${(x * 10).toFixed(2)}deg`)
+        element.style.setProperty('--tilt-x', `${(-y * 9.375).toFixed(2)}deg`)
+        element.style.setProperty('--tilt-y', `${(x * 12.5).toFixed(2)}deg`)
       })
     }
     addEventListener('pointermove', move, { passive: true })

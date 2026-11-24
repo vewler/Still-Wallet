@@ -1,8 +1,8 @@
 import { useId } from 'react'
 import type { Chain } from '../networks'
 
-export function Brand({ attribution = false, name = 'Still', stacked = false }: { attribution?: boolean; name?: string; stacked?: boolean }) {
-  return <span className={stacked ? 'brand brand--stacked' : 'brand'}><img src="/icons/brand.svg" alt="" width="29" height="29" /><strong>{name}</strong>{attribution && <small>by ow2</small>}</span>
+export function Brand({ name = 'Still', stacked = false }: { name?: string; stacked?: boolean }) {
+  return <span className={stacked ? 'brand brand--stacked' : 'brand'}><img src="/icons/brand.svg" alt="" width="29" height="29" /><strong>{name}</strong></span>
 }
 
 // viewBoxes are offset to center each glyph (some logos aren't centered).

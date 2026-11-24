@@ -104,7 +104,7 @@ export async function testEndpoint(network: Network, endpoint: string, signal: A
   }
   if (network.chain === 'bitcoin') return (await import('./ledgerTransfers')).checkBitcoinNetwork(endpoint, privateFetch(signal))
   if (network.chain === 'xrp') { await (await import('./ledgerTransfers')).xrpServer(endpoint, privateFetch(signal)); return }
-  if (network.chain === 'solana') await solanaClient(network, endpoint, signal)
+  if (network.chain === 'solana') await (await solanaClient(network, endpoint, signal)).getBlockHeight({ commitment: 'confirmed' }).send()
   else await evmClient(network, endpoint, signal)
 }
 
@@ -204,7 +204,11 @@ export type Quote = {
   rent?: string
   destinationTag?: number
   kind?: ActivityItem['kind']
-  receive?: { amount: string; minimum: string; symbol: string; slippage?: number; auto?: boolean; impact?: number }
+  receive?: { amount: string; minimum: string; symbol: string; network?: string; slippage?: number; auto?: boolean; impact?: number }
+  /** Who receives the coins in a swap, shown on review. */
+  via?: string
+  /** Cross-chain swaps: seconds until the coins arrive. */
+  eta?: number
   network: Network
   expires: number
   sign: (session: Session) => Promise<SignedTransfer>

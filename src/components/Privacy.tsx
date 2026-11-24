@@ -2,7 +2,7 @@ import { useState, type Ref } from 'react'
 import { ArrowLeft, ChevronDown } from 'lucide-react'
 import { Slot } from './Dialog'
 import { Brand } from './Icons'
-import { credits, supporters, team } from '../credits'
+import { credits, dataSources, supporters, team } from '../credits'
 import './landing.css'
 
 const updated = 'November 19, 2026'
@@ -12,7 +12,7 @@ export function PrivacyPolicy({ mainRef, back }: { mainRef: Ref<HTMLElement>; ba
   return <div className="landing">
     <header className="landing-header">
       <div className="landing-container landing-header-inner">
-        <a className="landing-brand" href="/" aria-label="Still home"><Brand attribution /></a>
+        <a className="landing-brand" href="/" aria-label="Still home"><Brand /></a>
         <a className="button secondary landing-button" href={back}><ArrowLeft size={16} /> Back</a>
       </div>
     </header>
@@ -39,6 +39,7 @@ export function PrivacyPolicy({ mainRef, back }: { mainRef: Ref<HTMLElement>; ba
       <p>Still uses chain providers and market data services. Their privacy policies apply.</p>
       <ul>
         <li><strong>Network servers.</strong> The Still host forwards requests to the configured providers. It can see your IP address and request contents. Providers can see the wallet addresses, swap quotes, and signed transactions in those requests. If you set a custom RPC under <strong>Networks</strong>, it receives requests and your IP address directly. You can pause requests in <strong>Settings</strong>.</li>
+        <li><strong>Helius.</strong> The Still host forwards Solana requests to Helius. Those requests can contain your Solana address and signed transactions, but not your IP address.</li>
         <li><strong>CoinGecko.</strong> The Still host requests public market data using token identifiers, currency, and chart ranges. Those requests contain no wallet addresses.</li>
       </ul>
 
@@ -62,7 +63,7 @@ export function PrivacyPolicy({ mainRef, back }: { mainRef: Ref<HTMLElement>; ba
     </main>
 
     <footer className="landing-footer landing-container">
-      <span><strong>Still</strong> by ow2</span>
+      <span><strong>Still</strong></span>
       <a href="/LICENSE.txt" target="_blank" rel="noreferrer">MIT License</a>
     </footer>
   </div>
@@ -73,7 +74,7 @@ export function CreditsPage({ mainRef, back }: { mainRef: Ref<HTMLElement>; back
   return <div className="landing">
     <header className="landing-header">
       <div className="landing-container landing-header-inner">
-        <a className="landing-brand" href="/" aria-label="Still home"><Brand attribution /></a>
+        <a className="landing-brand" href="/" aria-label="Still home"><Brand /></a>
         <a className="button secondary landing-button" href={back}><ArrowLeft size={16} /> Back</a>
       </div>
     </header>
@@ -92,15 +93,20 @@ export function CreditsPage({ mainRef, back }: { mainRef: Ref<HTMLElement>; back
         {supporters.map(([name, role]) => <li key={name}><span>{name}<br /><small>{role}</small></span></li>)}
       </ul>
 
+      <h2>Data from</h2>
+      <ul className="credits-page-list">
+        {dataSources.map(([name, kind, use]) => <li key={name}><span>{name}<br /><small>{use}</small></span><em>{kind}</em></li>)}
+      </ul>
+
       <h2>Built with</h2>
       <ul className="credits-page-list">
         {credits.map(([name, license, use]) => <li key={name}><span>{name}<br /><small>{use}</small></span><em>{license}</em></li>)}
       </ul>
-      <p>Prices from CoinGecko. Thanks to everyone who maintains these projects.</p>
+      <p>Thanks to everyone who maintains these projects.</p>
     </main>
 
     <footer className="landing-footer landing-container">
-      <span><strong>Still</strong> by ow2</span>
+      <span><strong>Still</strong></span>
       <a href="/LICENSE.txt" target="_blank" rel="noreferrer">MIT License</a>
     </footer>
   </div>
@@ -126,7 +132,7 @@ export function FaqPage({ mainRef, back }: { mainRef: Ref<HTMLElement>; back: st
   return <div className="landing">
     <header className="landing-header">
       <div className="landing-container landing-header-inner">
-        <a className="landing-brand" href="/" aria-label="Still home"><Brand attribution /></a>
+        <a className="landing-brand" href="/" aria-label="Still home"><Brand /></a>
         <a className="button secondary landing-button" href={back}><ArrowLeft size={16} /> Back</a>
       </div>
     </header>
@@ -143,7 +149,7 @@ export function FaqPage({ mainRef, back }: { mainRef: Ref<HTMLElement>; back: st
     </main>
 
     <footer className="landing-footer landing-container">
-      <span><strong>Still</strong> by ow2</span>
+      <span><strong>Still</strong></span>
       <a href="/LICENSE.txt" target="_blank" rel="noreferrer">MIT License</a>
     </footer>
   </div>
@@ -155,7 +161,7 @@ export function ErrorPage({ mainRef, kind }: { mainRef: Ref<HTMLElement>; kind: 
   return <div className="landing">
     <header className="landing-header">
       <div className="landing-container landing-header-inner">
-        <a className="landing-brand" href="/" aria-label="Still home"><Brand attribution /></a>
+        <a className="landing-brand" href="/" aria-label="Still home"><Brand /></a>
       </div>
     </header>
 
@@ -166,7 +172,7 @@ export function ErrorPage({ mainRef, kind }: { mainRef: Ref<HTMLElement>; kind: 
     </main>
 
     <footer className="landing-footer landing-container">
-      <span><strong>Still</strong> by ow2</span>
+      <span><strong>Still</strong></span>
       <a href="/LICENSE.txt" target="_blank" rel="noreferrer">MIT License</a>
     </footer>
   </div>

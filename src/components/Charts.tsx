@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { SlidersHorizontal } from 'lucide-react'
-import { Dialog, afterTap } from './Dialog'
+import { Dialog } from './Dialog'
 import { allAssets, arrangeList, type Asset, type AssetLayout } from '../assets'
 import type { Preferences } from '../storage'
 import { Coin, TokenIcon } from './Icons'
@@ -145,7 +145,7 @@ export function ChartsPage({ preferences }: { preferences: Preferences }) {
   return <div className="page charts-page">
     <Heading title="Charts" action={<div className="charts-actions">
       <Toggle className="charts-range" label="Time range" options={ranges} value={days} set={setDays} />
-      <button type="button" className="round-button" aria-label="Manage charts" onClick={() => afterTap(() => setManaging(true))}><SlidersHorizontal size={18} /></button>
+      <button type="button" className="round-button" aria-label="Manage charts" onClick={() => setManaging(true)}><SlidersHorizontal size={18} /></button>
     </div>} />
     {preferences.offline ? <p className="field-note">Network requests are paused, so charts can’t load. Turn them back on in Settings.</p>
       : shown.length === 0 ? <p className="field-note">No charts turned on. Use the manage button to add some.</p>

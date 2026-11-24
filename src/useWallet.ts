@@ -38,6 +38,7 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
   const [changes, setChanges] = useState<Prices>(() => readPriceCache(readPreferences().currency).changes)
   const [tokenBalances, setTokenBalances] = useState<Record<string, Balance>>({})
   const active = useRef<Session | undefined>(undefined)
+  const preloaded = useRef<Session | undefined>(undefined)
   const currentPreferences = useRef(preferences)
   const connection = useRef<AbortController | null>(null)
   const refreshRequest = useRef<AbortController | null>(null)
@@ -106,18 +107,32 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
     }
   }, [lock, session, preferences.autoLock])
 
-  function start(value: Session) {
+  /** Load balances behind the lock screen, so the wallet opens with them already there. */
+  async function preload(value: Session) {
     active.current = value
     resetRequests()
+    setBalances({})
+    setTokenBalances({})
+    if (currentPreferences.current.offline) return
+    preloaded.current = value
+    await Promise.race([refresh('balances', true), new Promise((done) => setTimeout(done, 8000))])
+  }
+
+  function start(value: Session) {
+    const ready = preloaded.current === value
+    preloaded.current = undefined
+    active.current = value
+    if (!ready) resetRequests()
     setSaved(true)
     setSession(value)
     setName(walletName(value.id))
     setItems([])
     void loadActivity(value.id, value.activityKey).then((items) => { if (active.current === value) setItems(items) }, () => {})
     setLayout(readAssetLayout(value.id, defaultLayout))
+    loadWallets(value.vault)
+    if (ready) return
     setBalances({})
     setTokenBalances({})
-    loadWallets(value.vault)
     // Load balances right after unlock/switch.
     if (!currentPreferences.current.offline) void refresh('balances', true)
   }
@@ -215,9 +230,18 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
         const networkList = activeNetworks(prefs.environment).filter((network) => network.id !== monero)
         if (readAssetLayout(wallet.id, defaultLayout).shown.includes(monero)) loadMonero(wallet, request.signal)
         const tokenList = tokensFor(prefs.environment)
+        // Public providers drop the odd call, so each network gets one more try before it shows as failed.
+        const retry = async <T,>(load: () => Promise<T>) => {
+          try { return await load() } catch (error) {
+            if (request.signal.aborted) throw error
+            await new Promise((done) => setTimeout(done, 700))
+            if (request.signal.aborted) throw error
+            return load()
+          }
+        }
         const [result, tokenResult] = await Promise.all([
-          Promise.allSettled(networkList.map((network) => rpc.getBalance(network, prefs.rpc[network.id] ?? defaultEndpoint(network), wallet.addresses, request.signal))),
-          Promise.allSettled(networkList.map((network) => rpc.getTokenBalances(network, prefs.rpc[network.id] ?? defaultEndpoint(network), wallet.addresses, tokenList.filter((token) => token.network === network.id), request.signal))),
+          Promise.allSettled(networkList.map((network) => retry(() => rpc.getBalance(network, prefs.rpc[network.id] ?? defaultEndpoint(network), wallet.addresses, request.signal)))),
+          Promise.allSettled(networkList.map((network) => retry(() => rpc.getTokenBalances(network, prefs.rpc[network.id] ?? defaultEndpoint(network), wallet.addresses, tokenList.filter((token) => token.network === network.id), request.signal)))),
         ])
         if (request.signal.aborted) return
         setBalances((current) => ({ ...current, ...Object.fromEntries(result.map((entry, index) => [networkList[index].id, entry.status === 'fulfilled' ? { amount: entry.value } : { unavailable: true }])) }))
@@ -227,7 +251,8 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
         }))
         setTokenBalances(loaded)
         const failed = [...result, ...tokenResult].some((entry) => entry.status === 'rejected')
-        if (failed || !quiet) notify(failed ? 'Some RPCs could not load balances.' : 'Balances refreshed')
+        // Background loads stay silent. Coins that failed show as unavailable.
+        if (!quiet) notify(failed ? 'Some RPCs could not load balances.' : 'Balances refreshed')
       } else {
         const pending = readActivity(wallet.id).filter((item) => item.status === 'submitted' || item.status === 'unknown').slice(0, 30)
         const result = await Promise.allSettled(pending.map((item) => {
@@ -290,6 +315,16 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
   function prepareSwap(network: Network, sell: string, buy: string, amount: string, signal: AbortSignal, slippage?: number) {
     return prepareQuote(network, signal, async (endpoint, wallet, request) =>
       (await import('./swap')).quoteSwap(network, endpoint, wallet.addresses.ethereum, sell, buy, amount, request, slippage))
+  }
+
+  /** Swap between any two coins. Same-network swaps on Ethereum/Base use Uniswap, everything else NEAR Intents. */
+  async function prepareAnySwap(sell: string, buy: string, amount: string, signal: AbortSignal, slippage = 0) {
+    const swap = await import('./swap')
+    const from = swap.assetNetwork(sell)
+    if (!from) throw new Error('Pick a coin to pay with.')
+    if (from && from.id === swap.assetNetwork(buy)?.id && swap.swapNetworks.includes(from.id as never)) return prepareSwap(from, sell, buy, amount, signal, slippage)
+    return prepareQuote(from, signal, async (_endpoint, wallet, request) =>
+      swap.quoteCrossSwap(wallet.addresses, sell, buy, amount, request, slippage, (network, to, value, asset, tag) => prepare(network, to, value, request, asset, tag)))
   }
 
   async function submit(quote: Quote) {
@@ -359,6 +394,6 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
     preferences, balances, tokenBalances, layout, arrange, items, refreshing, session, name, wallets, prices, changes,
     emoji: wallets.find((entry) => entry.id === session?.id)?.emoji,
     mode: session ? 'wallet' as const : saved ? 'locked' as const : 'none' as const,
-    lock, start, update, refresh, prepare, prepareSwap, submit, removed, rename, setEmoji, switchWallet, addWallet,
+    lock, start, preload, update, refresh, prepare, prepareSwap, prepareAnySwap, submit, removed, rename, setEmoji, switchWallet, addWallet,
   }
 }

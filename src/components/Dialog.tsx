@@ -71,22 +71,38 @@ export function Dialog({ title, close, busy = false, step, back = false, childre
   }
 
   // Phones: drag the handle/header down to close. Snaps back on a short pull, closes on a long pull or a flick.
+  // The drag only starts once the finger travels 8px, so a slightly shaky tap stays a tap.
   const drag = useRef<{ y: number; time: number; dy: number; v: number } | null>(null)
+  const press = useRef<{ x: number; y: number } | null>(null)
   function dragStart(event: ReactPointerEvent) {
-    if (busy || document.documentElement.dataset.layout !== 'phone' || (event.target as HTMLElement).closest('button')) return
-    drag.current = { y: event.clientY, time: event.timeStamp, dy: 0, v: 0 }
-    ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
-    ref.current!.style.transition = 'none'
-    ref.current!.classList.add('dragging-sheet')
-    setDim(1)
+    if (busy || document.documentElement.dataset.layout !== 'phone' || (event.target as HTMLElement).closest('button, a, input, textarea, select, label, [role="button"]')) return
+    press.current = { x: event.clientX, y: event.clientY }
   }
   function dragMove(event: ReactPointerEvent) {
+    if (!drag.current) {
+      const start = press.current
+      if (!start) return
+      const dx = event.clientX - start.x
+      const dy = event.clientY - start.y
+      if (Math.hypot(dx, dy) < 8) return
+      press.current = null
+      // Sideways swipes are not a sheet drag.
+      if (Math.abs(dx) > Math.abs(dy)) return
+      // Start from here so the sheet doesn't jump by the 8px.
+      drag.current = { y: event.clientY, time: event.timeStamp, dy: 0, v: 0 }
+      ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+      ref.current!.style.transition = 'none'
+      ref.current!.classList.add('dragging-sheet')
+      setDim(1)
+      return
+    }
     const state = drag.current
-    if (!state) return
     const raw = event.clientY - state.y
     // Pulled up: stiff rubber band, tops out around 20px.
     const dy = raw > 0 ? raw : -10 * Math.log1p(-raw / 40)
-    state.v = (dy - state.dy) / Math.max(1, event.timeStamp - state.time)
+    // Smoothed speed (px/ms) so one jittery sample doesn't decide the release.
+    const elapsed = event.timeStamp - state.time
+    if (elapsed > 0) state.v = .6 * ((dy - state.dy) / elapsed) + .4 * state.v
     state.dy = dy
     state.time = event.timeStamp
     const dialog = ref.current!
@@ -95,20 +111,31 @@ export function Dialog({ title, close, busy = false, step, back = false, childre
     const half = dialog.getBoundingClientRect().height / 2
     setDim(Math.min(1, Math.max(0, 2 - Math.max(0, dy) / half)))
   }
-  function dragEnd() {
+  function dragEnd(event: ReactPointerEvent) {
+    press.current = null
     const state = drag.current
     if (!state) return
+    // Finger held still before letting go: no flick.
+    if (event.timeStamp - state.time > 90) state.v = 0
     drag.current = null
     const dialog = ref.current!
-    dialog.style.transition = 'transform .28s cubic-bezier(.2, .8, .2, 1)'
-    if (state.dy > dialog.getBoundingClientRect().height * 0.3 || (state.dy > 24 && state.v > 0.6)) {
+    const height = dialog.getBoundingClientRect().height
+    // Flick down closes even on a short pull; flick up keeps it open even after a long one.
+    const closes = state.v > .5 ? state.dy > 16 : state.v < -.3 ? false : state.dy > height * .3
+    if (closes) {
+      // Keep the finger's speed: the faster the flick, the quicker it leaves.
+      const left = height - state.dy
+      const time = Math.round(Math.max(160, Math.min(320, left / Math.max(state.v, 1.2))))
+      dialog.style.transition = `transform ${time}ms cubic-bezier(.3, .7, .4, 1)`
       dialog.style.transform = 'translateY(100%)'
-      setDim(0, '.28s')
-      window.setTimeout(() => { setDim(null); close() }, 280)
+      setDim(0, `${time}ms`)
+      window.setTimeout(() => { setDim(null); close() }, time)
     } else {
+      // Settle back smoothly.
+      dialog.style.transition = 'transform .42s cubic-bezier(.22, 1, .36, 1)'
       dialog.style.transform = ''
-      setDim(1, '.28s')
-      window.setTimeout(() => { dialog.classList.remove('dragging-sheet'); setDim(null) }, 300)
+      setDim(1, '.3s')
+      window.setTimeout(() => { dialog.classList.remove('dragging-sheet'); setDim(null) }, 440)
     }
   }
 

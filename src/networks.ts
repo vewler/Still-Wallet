@@ -32,6 +32,9 @@ export const networks: Record<NetworkId, Network> = {
   'base-main': { id: 'base-main', chain: 'base', name: 'Base', label: 'Mainnet', symbol: 'ETH', priceId: 'ethereum', decimals: 18, rpc: 'https://mainnet.base.org', chainId: 8453, explorer: 'https://basescan.org' },
 }
 
+/** Networks swaps work on (NEAR Intents). Monero and HyperEVM aren't supported there. */
+export const crossNetworks: NetworkId[] = ['bitcoin-main', 'ethereum-main', 'solana-main', 'bnb-main', 'xrp-main', 'base-main']
+
 export function activeNetworks(environment: Environment) {
   return chains.map((chain) => networks[`${chain}-${environment}`])
 }

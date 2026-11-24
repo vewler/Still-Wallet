@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { ArrowLeft, ArrowRight, ArrowUp, Box, Check, Copy, ExternalLink, QrCode, ShieldAlert, Shuffle } from 'lucide-react'
-import { addressFor, explorerUrl, networks as mainnets, type Addresses, type Network, type NetworkId } from '../networks'
+import { addressFor, crossNetworks, explorerUrl, networks as mainnets, type Addresses, type Network, type NetworkId } from '../networks'
 import type { Quote } from '../rpc'
 import type { ActivityItem } from '../storage'
 import { Coin, TokenIcon } from './Icons'
@@ -81,30 +81,41 @@ export function Send({ initial, initialAsset, networks, quote, ...actions }: Tra
   </TransactionDialog>
 }
 
+const swapAssets = crossNetworks.flatMap((id) => [id as string, ...tokens.filter((token) => token.network === id).map((token) => token.id)])
+
+function SwapAssetField({ label, value, change }: { label: string; value: string; change: (asset: string) => void }) {
+  return <div className="field"><span>{label}</span>
+    <Picker label={label} value={value} onChange={change} options={swapAssets.map((id) => {
+      const token = tokenById(id)
+      const network = mainnets[(token?.network ?? id) as NetworkId]
+      return { value: id, label: token?.symbol ?? network.symbol, sub: token ? `${token.name} · ${network.name}` : network.name, icon: token ? <TokenIcon token={token} /> : <Coin chain={network.chain} /> }
+    })} />
+  </div>
+}
+
 export function Swap({ quote, from, ...actions }: TransactionActions & {
-  quote: (network: Network, sell: string, buy: string, amount: string, signal: AbortSignal, slippage: number) => Promise<Quote>
-  /** From a coin sheet: preselect that coin if it trades on Ethereum/Base. */
+  quote: (sell: string, buy: string, amount: string, signal: AbortSignal, slippage: number) => Promise<Quote>
+  /** From a coin sheet: preselect that coin if it can be swapped. */
   from?: { network: NetworkId; asset: string }
 }) {
-  const start = from && (from.network === 'ethereum-main' || from.network === 'base-main') ? from : undefined
-  const [network, setNetwork] = useState(mainnets[start?.network ?? 'ethereum-main'])
-  const [sell, setSell] = useState<string>(start?.asset ?? network.id)
-  const [buy, setBuy] = useState(sell === `${network.id}:USDC` ? network.id : `${network.id}:USDC`)
+  const [sell, setSell] = useState<string>(from && swapAssets.includes(from.asset) ? from.asset : 'ethereum-main')
+  const [buy, setBuy] = useState(() => {
+    const network = tokenById(sell)?.network ?? sell
+    return tokenById(sell)?.symbol === 'USDC' ? network : tokenById(`${network}:USDC`) ? `${network}:USDC` : 'ethereum-main:USDC'
+  })
   const [amount, setAmount] = useState('')
   const [slippage, setSlippage] = useState(0)
-  return <TransactionDialog {...actions} title="Swap" prepare={(signal) => quote(network, sell, buy, amount, signal, slippage)}>
-    <NetworkField networks={[mainnets['ethereum-main'], mainnets['base-main']]} selected={network} change={(next) => {
-      setNetwork(next)
-      setSell(next.id)
-      setBuy(`${next.id}:USDC`)
-    }} />
-    <AssetField network={network} label="You pay" value={sell} change={setSell} />
-    <AssetField network={network} label="You receive" value={buy} change={setBuy} />
-    <label className="field">Amount in {tokenById(sell)?.symbol ?? network.symbol}<input name="amount" inputMode="decimal" autoComplete="off" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.target.value)} maxLength={36} required /></label>
+  const sellNetwork = tokenById(sell)?.network ?? sell
+  const buyNetwork = tokenById(buy)?.network ?? buy
+  const uniswap = sellNetwork === buyNetwork && (sellNetwork === 'ethereum-main' || sellNetwork === 'base-main')
+  return <TransactionDialog {...actions} title="Swap" prepare={(signal) => quote(sell, buy, amount, signal, slippage)}>
+    <SwapAssetField label="You pay" value={sell} change={(next) => { if (next === buy) setBuy(sell); setSell(next) }} />
+    <SwapAssetField label="You receive" value={buy} change={(next) => { if (next === sell) setSell(buy); setBuy(next) }} />
+    <label className="field">Amount in {tokenById(sell)?.symbol ?? mainnets[sell as NetworkId].symbol}<input name="amount" inputMode="decimal" autoComplete="off" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.target.value)} maxLength={36} required /></label>
     <div className="field"><span>Max slippage</span>
       <Picker label="Max slippage" value={slippage} onChange={setSlippage} options={[0, 50, 100, 200, 300].map((value) => ({ value, label: value ? `${value / 100}%` : 'Auto', sub: !value ? 'Recommended, picked for each swap' : value < 100 ? 'May fail when prices move' : value > 100 ? 'Fills more often, can cost more' : 'Standard' }))} />
     </div>
-    <p className="field-note">Swaps use Uniswap v2 on the selected network. Liquidity varies by pair and amount.</p>
+    <Glide><p key={String(uniswap)} className="field-note">{uniswap ? 'Swaps on the same network use Uniswap v2. Liquidity varies by pair and amount.' : 'Swaps between networks use NEAR Intents. The new coins land in this wallet, usually within a few minutes.'}</p></Glide>
   </TransactionDialog>
 }
 
@@ -200,18 +211,19 @@ function TransactionDialog({ title, close, prepare, submit, finished, children }
     {review ? <div className="form">
       <dl className="review-list">
         <div><dt>Network</dt><dd>{review.network.name} · {review.network.label}</dd></div>
-        <div><dt>{approval || swapping ? 'Uniswap v2 router' : 'Recipient'}</dt><dd className="mono">{review.to}</dd></div>
+        <div><dt>{review.via ?? (approval || swapping ? 'Uniswap v2 router' : 'Recipient')}</dt><dd className="mono">{review.to}</dd></div>
         {review.destinationTag !== undefined && <div><dt>Destination tag</dt><dd>{review.destinationTag}</dd></div>}
         <div><dt>{approval ? 'Spending limit' : swapping ? 'You pay' : 'Amount'}</dt><dd>{review.value} {symbol}</dd></div>
         {review.receive && <>
-          <div><dt>Estimated receive</dt><dd>{review.receive.amount} {review.receive.symbol}</dd></div>
+          <div><dt>Estimated receive</dt><dd>{review.receive.amount} {review.receive.symbol}{review.receive.network ? ` on ${review.receive.network}` : ''}</dd></div>
           <div><dt>Minimum receive ({review.receive.auto ? 'Auto ' : ''}{(review.receive.slippage ?? 100) / 100}% slippage)</dt><dd>{review.receive.minimum} {review.receive.symbol}</dd></div>
         </>}
         <div><dt>Network fee estimate</dt><dd>{review.fee} {review.network.symbol}</dd></div>
         {review.rent && <div><dt>Recipient token account rent</dt><dd>{review.rent} SOL</dd></div>}
+        {review.eta !== undefined && <div><dt>Arrives in about</dt><dd>{review.eta < 90 ? '1 minute' : `${Math.round(review.eta / 60)} minutes`}</dd></div>}
       </dl>
-      <Notice>{approval ? review.value === '0' ? 'This clears the router’s current allowance. Confirm it before granting a new one.' : 'This lets Uniswap spend the amount shown. The swap requires a separate confirmation.' : swapping ? 'The swap returns assets to this wallet. If the price falls below the minimum or the quote expires on-chain, the swap can fail and still cost gas.' : 'This is a mainnet transfer. Check the full address and network. Broadcast transfers cannot be recalled.'}</Notice>
-      {(review.receive?.impact ?? 0) >= .03 && <Notice error>Big swap for this pool: you get about {Math.round(review.receive!.impact! * 100)}% less than the current price. Try a smaller amount.</Notice>}
+      <Notice>{approval ? review.value === '0' ? 'This clears the router’s current allowance. Confirm it before granting a new one.' : 'This lets Uniswap spend the amount shown. The swap requires a separate confirmation.' : swapping ? review.via ? 'Your coins go to a one-time deposit address and the swapped coins come back to this wallet. If the swap can’t fill at the minimum, it refunds to this wallet.' : 'The swap returns assets to this wallet. If the price falls below the minimum or the quote expires on-chain, the swap can fail and still cost gas.' : 'This is a mainnet transfer. Check the full address and network. Broadcast transfers cannot be recalled.'}</Notice>
+      {(review.receive?.impact ?? 0) >= .03 && <Notice error>Big price hit: you get about {Math.round(review.receive!.impact! * 100)}% less than the current price. Try a smaller amount.</Notice>}
       <ErrorSlot error={error} />
       <button className="button primary wide" onClick={() => void confirm()} disabled={busy}>{busy ? 'Submitting transaction…' : approval ? review.value === '0' ? 'Clear allowance' : 'Approve spending' : swapping ? 'Sign and swap' : 'Sign and send'}</button>
       <button className="button text-button wide" onClick={edit} disabled={busy}><ArrowLeft size={16} /> Edit {title === 'Swap' ? 'swap' : 'transfer'}</button>

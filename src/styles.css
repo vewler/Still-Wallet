@@ -54,7 +54,6 @@ svg { flex-shrink: 0; }
 .brand { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
 .brand img { width: 29px; height: 29px; object-fit: contain; flex: none; }
 .brand strong { font-size: 29px; line-height: 1; font-weight: 720; letter-spacing: -.055em; }
-.brand small { font-size: 12px; color: var(--muted); margin-left: 2px; font-weight: 450; }
 
 /* Buttons */
 .button {
@@ -92,6 +91,10 @@ svg { flex-shrink: 0; }
   height: calc(var(--header) + env(safe-area-inset-top)); padding: env(safe-area-inset-top) var(--gutter) 0;
   background: color-mix(in srgb, var(--bg) 86%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
 }
+/* Phone: header is fixed, not sticky, so it never moves with the page */
+:root[data-layout='phone'] .app-header { position: fixed; top: 0; left: 0; right: 0; width: 100%; max-width: var(--app-width); margin-inline: auto; }
+:root[data-layout='phone'] .app-body { padding-top: calc(var(--header) + env(safe-area-inset-top)); }
+@media (min-width: 590px) { :root[data-layout='phone'] .app-header { max-width: calc(var(--app-width) - 2px); } }
 .account { text-align: left; display: flex; align-items: center; gap: 10px; min-width: 0; padding: 4px 10px 4px 4px; border-radius: 999px; transition: background .15s; }
 .avatar { display: grid; place-items: center; width: 36px; height: 36px; flex: none; border-radius: 50%; background: var(--card); border: 1px solid var(--stroke); }
 .avatar img { width: 20px; height: 20px; object-fit: contain; }
@@ -247,6 +250,7 @@ button.token:active, a.token:active { transform: scale(.99); }
 .dialog-head h2 { grid-column: 2; font-size: 17px; font-weight: 650; text-align: center; }
 .dialog-head .icon-button { grid-column: 3; }
 .dialog-intro { color: var(--muted); font-size: 14px; line-height: 1.55; }
+.dialog-intro--center { text-align: center; }
 
 .form { display: grid; gap: 14px; }
 fieldset.form { min-width: 0; margin: 0; padding: 0; border: 0; }
@@ -307,7 +311,8 @@ fieldset.form { min-width: 0; margin: 0; padding: 0; border: 0; }
   border-radius: 999px; background: var(--card); border: 1px solid var(--stroke); box-shadow: 0 12px 40px #0009;
   font-size: 14px; font-weight: 560; pointer-events: none; opacity: 0; transform: translate(-50%, 8px); transition: opacity .16s, transform .16s;
 }
-.toast svg { color: var(--green); }
+.toast svg { flex: none; color: var(--green); }
+.toast--warn svg { color: var(--danger); }
 .toast.visible { opacity: 1; transform: translate(-50%, 0); }
 .update-banner { position: fixed; z-index: 39; left: 50%; transform: translateX(-50%); bottom: calc(var(--tabbar) + env(safe-area-inset-bottom) + 64px); border-radius: 999px !important; }
 
@@ -422,8 +427,7 @@ fieldset.form { min-width: 0; margin: 0; padding: 0; border: 0; }
 /* Emoji picker */
 .emoji-picker { display: grid; gap: 8px; }
 .emoji-tabs { display: flex; gap: 4px; overflow-x: auto; padding: 4px; border-radius: 14px; background: var(--card); scrollbar-width: none; }
-.emoji-tabs button { flex: 1 0 36px; height: 36px; border-radius: 10px; font-size: 19px; opacity: .55; filter: grayscale(.6); transition: background .2s, opacity .2s, filter .2s, transform .15s var(--ease-out); }
-.emoji-tabs button[aria-selected="true"] { opacity: 1; filter: none; }
+.emoji-tabs button { flex: 1 0 36px; height: 36px; border-radius: 10px; font-size: 19px; transition: background .2s, transform .15s var(--ease-out); }
 .emoji-category { margin: 2px 4px 0; color: var(--muted); font-size: 12px; font-weight: 620; text-transform: uppercase; letter-spacing: .05em; }
 .emoji-picker .emoji-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); max-height: 216px; overflow-y: auto; overscroll-behavior: contain; padding: 2px; animation: fade-in .2s ease; }
 .emoji-picker .emoji-grid button { font-size: 21px; border-radius: 10px; }
@@ -456,7 +460,9 @@ fieldset.form { min-width: 0; margin: 0; padding: 0; border: 0; }
 .field .pw-input input { color: transparent; caret-color: var(--text); }
 .field .pw-input input::placeholder { color: var(--muted); }
 .pw-dots { position: absolute; inset: 1px 15px; display: flex; align-items: center; overflow: hidden; pointer-events: none; color: var(--text); font-size: 16px; font-weight: 450; white-space: pre; }
-.pw-dots span { animation: dot-in .18s var(--ease-out) backwards; }
+.pw-dots span { display: grid; place-items: center; flex: none; width: 9px; height: 9px; font-size: 0; animation: dot-in .18s var(--ease-out) backwards; }
+/* Drawn dots, so they're the same size on every device and font */
+.pw-dots span::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 @keyframes dot-in { from { opacity: 0; transform: scale(.3); } }
 .pw-dots span.pw-out { animation: dot-out var(--dot-out, .09s) ease-in forwards; }
 @keyframes dot-out { to { opacity: 0; transform: scale(.3); } }
@@ -513,7 +519,7 @@ fieldset.form { min-width: 0; margin: 0; padding: 0; border: 0; }
 .dialog .actions.actions--sheet { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .dialog-head .icon-button { justify-self: end; }
 
-/* Keep the page bounce, extend sidebar/header/tab bar past the edges */
+/* Extend sidebar/header/tab bar past the edges */
 /* Box-shadows, not pseudo-elements, so the sidebar doesn't become scrollable */
 .sidebar { box-shadow: 0 -100vh 0 var(--surface), 1px -100vh 0 var(--stroke), 0 100vh 0 var(--surface), 1px 100vh 0 var(--stroke); }
 .app-header::before { content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 100vh; background: var(--bg); pointer-events: none; }
@@ -729,15 +735,6 @@ button.text-link { padding: 0; }
 @keyframes tap-scan { 0% { transform: scale(1); } 35% { transform: scale(.78); opacity: .6; } 70% { transform: scale(1.14); opacity: 1; } 100% { transform: scale(1); } }
 @keyframes tap-send { 0% { transform: none; } 40% { transform: translateY(-14px); opacity: 0; } 41% { transform: translateY(12px); opacity: 0; } 100% { transform: none; opacity: 1; } }
 @keyframes tap-swap { 0% { transform: none; } 40% { transform: translateX(14px); opacity: 0; } 41% { transform: translateX(-12px); opacity: 0; } 100% { transform: none; opacity: 1; } }
-/* Scramble cube: squats, hops and tumbles one face (120deg looks identical), squashes on landing. Same length as the other tiles. */
-.action svg.tap.lucide-box { animation: tap-cube .62s; }
-@keyframes tap-cube {
-  0% { translate: 0 0; rotate: 0deg; scale: 1; animation-timing-function: ease-out; }
-  16% { translate: 0 1px; rotate: 0deg; scale: 1.1 .86; animation-timing-function: cubic-bezier(.2, .7, .4, 1); }
-  52% { translate: 0 -6px; rotate: 96deg; scale: .96 1.06; animation-timing-function: cubic-bezier(.6, 0, .9, .5); }
-  74% { translate: 0 0; rotate: 120deg; scale: 1.08 .9; animation-timing-function: var(--ease-out); }
-  100% { translate: 0 0; rotate: 120deg; scale: 1; }
-}
 @keyframes tap-hold { to { opacity: 1; } }
 /* Manage button: each knob slides along its line and the line's two halves stretch with it, then everything settles back.
    Paths: 1/3/7 top row (left, knob, right), 9/8/5 middle, 2/4/6 bottom. Halves scale from their outer end (x 3 or 21). */
@@ -759,10 +756,10 @@ svg.tap.lucide-sliders-horizontal path:nth-child(6) { --s: 2.2; --d: 100ms; }
 /* Soft fade just outside the icon edge */
 .action span { padding: 10px; margin: -10px; overflow: hidden; -webkit-mask-image: radial-gradient(closest-side, #000 72%, transparent); mask-image: radial-gradient(closest-side, #000 72%, transparent); }
 /* Pull to refresh: gap follows the finger then eases shut, native pull UI off */
-/* Native bounce stays at the top/bottom, our pull handles refresh */
-html[data-layout='desktop'] { overscroll-behavior-y: none; }
-.pull-refresh { display: grid; place-items: center; overflow: hidden; color: var(--muted); transition: height .35s var(--ease-out); }
-.pull-refresh > span { display: inline-grid; transition: opacity .25s, transform .35s var(--ease-out); }
+/* No page bounce, header and tab bar never move. Our pull handles refresh */
+html, body { overscroll-behavior-y: none; }
+.pull-refresh { display: grid; place-items: center; overflow: hidden; color: var(--muted); transition: height .45s cubic-bezier(.22, 1, .36, 1); }
+.pull-refresh > span { display: inline-grid; transition: opacity .25s, transform .45s cubic-bezier(.22, 1, .36, 1); }
 .pull-refresh.dragging, .pull-refresh.dragging > span { transition: none; }
 /* Sheet to sheet: old one keeps the dim while the new one slides over, then fades out */
 .sheet-over .dialog::backdrop { background: transparent; }
@@ -784,9 +781,7 @@ html[data-layout='desktop'] { overscroll-behavior-y: none; }
 @keyframes banner-in { from { opacity: 0; transform: translate(-50%, 16px); } }
 /* Emoji picker highlight glides between items */
 .emoji-tabs, .emoji-picker .emoji-grid { position: relative; }
-.slide-ring { position: absolute; z-index: 1; left: 0; top: 0; border-radius: 10px; pointer-events: none; box-shadow: inset 0 0 0 1px var(--blue); transition: transform .32s var(--ease-out), width .32s var(--ease-out), height .32s var(--ease-out), opacity .15s; }
-.emoji-tabs .slide-ring { background: #ffffff12; }
-.emoji-grid .slide-ring { background: #397bff1f; }
+.slide-ring { position: absolute; z-index: 1; left: 0; top: 0; border-radius: 10px; pointer-events: none; background: linear-gradient(180deg, #ffffff1f, #ffffff0d); box-shadow: inset 0 1px 0 #ffffff21, 0 8px 18px -10px #000; transition: transform .32s var(--ease-out), width .32s var(--ease-out), height .32s var(--ease-out), opacity .15s; }
 /* Range switch: labels and range name crossfade */
 .crossfade { display: inline-grid; }
 .crossfade > * { grid-area: 1 / 1; }
@@ -959,7 +954,7 @@ svg.unlocking { overflow: visible; }
   .app { grid-template-columns: 72px minmax(0, 1fr); }
   .sidebar { padding: 22px 10px; align-items: center; }
   .sidebar-brand { padding: 4px 0; }
-  .sidebar-brand .brand strong, .sidebar-brand .brand small, .side-nav a span { display: none; }
+  .sidebar-brand .brand strong, .side-nav a span { display: none; }
   .side-nav a { justify-content: center; width: 48px; padding: 0; }
   .app-header { padding: 0 16px; }
   .app-main { padding: 20px 16px 32px; }
@@ -969,7 +964,7 @@ svg.unlocking { overflow: visible; }
   .toast, .update-banner { left: calc(50% + 36px); }
 }
 }
-:root[data-layout='desktop'] .emoji-tabs button:hover { opacity: .85; filter: none; }
+:root[data-layout='desktop'] .emoji-tabs button:hover { background: #ffffff08; }
 :root[data-layout='desktop'] .emoji-picker .emoji-grid button:hover { background: var(--card-hover); }
 :root[data-layout='desktop'] .token--manage:hover { color: var(--text); background: transparent; }
 :root[data-layout='desktop'] .chart-card:has(.chart-hit:hover) { background: var(--card); border-color: #303038; }
@@ -983,8 +978,6 @@ svg.unlocking { overflow: visible; }
 @media (max-width: 999px) {
   :root[data-layout='desktop'] .home { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'summary' 'tokens' 'side' 'note'; }
 }
-/* "by ow2" only when there's room */
-@media (max-width: 999px) { :root[data-layout='desktop'] .sidebar-brand .brand small { display: none; } }
 /* Big windows: content grows to 1440px and the header lines up with it */
 :root[data-layout='desktop'] {
   --content-max: 1440px;
@@ -1010,8 +1003,9 @@ svg.unlocking { overflow: visible; }
 /* Coin popup: four actions (Scramble is a placeholder that opens a WIP sheet) */
 .dialog .actions.actions--sheet, :root[data-layout='desktop'] .dialog .actions.actions--sheet { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .scramble-target { display: flex; align-items: center; min-height: 48px; padding: 0 14px; border-radius: 14px; background: var(--card); color: var(--muted); font-size: 15px; }
-/* Home gets Scramble as a fifth tile on desktop only, phones reach it from the coin popup */
-:root[data-layout='phone'] .action--desktop { display: none; }
+/* Home gets Scramble as a fifth tile on desktop only, phones reach it from the coin popup.
+   Hidden but still rendered on phone so its rise-in already ran and it doesn't replay when the window widens. */
+:root[data-layout='phone'] .action--desktop { position: absolute; width: 0; height: 0; padding: 0; border: 0; overflow: hidden; visibility: hidden; pointer-events: none; }
 
 /* Touch: controls shorter than 44px get an invisible taller hit area, the look stays the same. */
 @media (pointer: coarse) {
@@ -1025,3 +1019,6 @@ svg.unlocking { overflow: visible; }
 :root[data-layout='phone'] .dialog-content { display: flex; flex-direction: column; min-height: 0; }
 :root[data-layout='phone'] .sheet-grab { flex: none; }
 :root[data-layout='phone'] .dialog-size { flex: 0 1 auto; min-height: 0; overflow: hidden auto; overscroll-behavior: contain; }
+/* Selection tile sits under the emoji so colors stay full */
+.emoji-tabs button, .emoji-picker .emoji-grid button { position: relative; z-index: 2; }
+.emoji-picker .emoji-grid button[aria-checked="true"], :root[data-layout] .emoji-picker .emoji-grid button[aria-checked="true"]:hover { background: transparent; }

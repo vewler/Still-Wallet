@@ -30,7 +30,6 @@
 .landing-brand { display: inline-flex; align-items: center; min-height: 44px; }
 .landing-brand img { width: 30px; height: 30px; }
 .landing-brand strong { font-size: 30px; }
-.landing-brand small { display: inline; margin-left: 6px; font-size: 13px; }
 .landing-nav { display: flex; align-items: center; gap: clamp(14px, 2.6vw, 30px); }
 .landing-nav-link { position: relative; padding-block: 6px; color: #b9b9c4; font-size: 15px; font-weight: 560; transition: color .2s; }
 .landing-nav-link::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; border-radius: 2px; background: var(--blue); transform: scaleX(0); transform-origin: left; transition: transform .35s var(--ease-out); }
@@ -203,7 +202,6 @@
   .landing-header-inner { min-height: 62px; }
   .landing-brand img { width: 25px; height: 25px; }
   .landing-brand strong { font-size: 26px; }
-  .landing-brand small { margin-left: 2px; font-size: 11px; }
   .landing-nav-link { display: none; }
   .landing .landing-button { min-height: 40px; padding-inline: 14px; font-size: 14px; }
   .landing .landing-button--big { min-height: 52px; width: 100%; }
@@ -212,8 +210,8 @@
   .feature-grid { grid-template-columns: minmax(0, 1fr); }
   .feature-card, .steps li { padding: 22px; }
   .security-stats div { padding: 18px; }
-  .chain-logos { gap: 12px 10px; }
-  .chain-logos > span { font-size: 14px; }
+  .chain-logos { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px 22px; }
+  .chain-logos > span { gap: 10px; font-size: 14px; }
   .float-card { padding: 9px 11px; font-size: 12px; }
   .float-card--one { left: 0; top: 56%; }
   .float-card--two { right: 0; }

@@ -10,7 +10,7 @@ import { Overview } from './components/Overview'
 import { ActivityPage, NetworksPage, RpcDialog, SettingsPage } from './components/Pages'
 import { ChartsPage, prefetchCharts } from './components/Charts'
 import { Landing, discord } from './components/Landing'
-import { credits, supporters, team } from './credits'
+import { credits, dataSources, supporters, team } from './credits'
 import { ManageCoins } from './components/Manage'
 import { smoothScrollTo } from './scroll'
 import { CreditsPage, ErrorPage, FaqPage, PrivacyPolicy } from './components/Privacy'
@@ -243,8 +243,16 @@ export default function App() {
     else setModal(action === 'swap' ? { type: 'swap', network, token } : { type: action, network, token })
   }
 
+  // Unlock and new wallets always open on Home, not the last page.
+  function toHome() {
+    if (location.pathname !== '/') history.replaceState(null, '', '/')
+    setRoute('home')
+    window.scrollTo(0, 0)
+  }
+
   function start(value: Session) {
     wallet.start(value)
+    toHome()
     if (modal?.type === 'access' && modal.intent) {
       let network = modal.network
       if (network && !network.endsWith(`-${preferences.environment}`)) network = `${networks[network].chain}-${preferences.environment}`
@@ -252,7 +260,6 @@ export default function App() {
       else setModal(modal.intent === 'swap' ? { type: 'swap', network, token: modal.token } : { type: modal.intent, network, token: modal.token })
     } else {
       close()
-      if (landing) go('overview')
     }
     notify('Wallet unlocked')
   }
@@ -280,9 +287,9 @@ export default function App() {
 
   return <div className="shell">
     <a href="#main-content" className="skip-link" onClick={(event) => { event.preventDefault(); content.current?.focus() }}>Skip to content</a>
-    {route === 'notfound' ? <ErrorPage mainRef={content} kind="missing" /> : mode === 'none' && route !== 'home' && !landing && !pages.includes(route) ? <ErrorPage mainRef={content} kind="denied" /> : route === 'privacy' ? <PrivacyPolicy mainRef={content} back={mode === 'wallet' ? '#settings' : '/'} /> : route === 'credits' ? <CreditsPage mainRef={content} back={mode === 'wallet' ? '#settings' : '/'} /> : route === 'faq' ? <FaqPage mainRef={content} back={mode === 'wallet' ? '#settings' : '/'} /> : mode === 'locked' ? <LockScreen mainRef={content} protect={preferences.protect} onSession={start} removed={(message) => { wallet.removed(); notify(message) }} /> : landing ? <Landing mode={mode} mainRef={content} openWallet={openWallet} /> : <div className="app">
+    {route === 'notfound' ? <ErrorPage mainRef={content} kind="missing" /> : mode === 'none' && route !== 'home' && !landing && !pages.includes(route) ? <ErrorPage mainRef={content} kind="denied" /> : route === 'privacy' ? <PrivacyPolicy mainRef={content} back={mode === 'wallet' ? '#settings' : '/'} /> : route === 'credits' ? <CreditsPage mainRef={content} back={mode === 'wallet' ? '#settings' : '/'} /> : route === 'faq' ? <FaqPage mainRef={content} back={mode === 'wallet' ? '#settings' : '/'} /> : mode === 'locked' ? <LockScreen mainRef={content} protect={preferences.protect} preload={wallet.preload} onSession={start} removed={(message) => { wallet.removed(); notify(message) }} /> : landing ? <Landing mode={mode} mainRef={content} openWallet={openWallet} /> : <div className="app">
       <aside className="sidebar">
-        <a href="#overview" className="sidebar-brand" aria-label="Still home"><Brand attribution /></a>
+        <a href="#overview" className="sidebar-brand" aria-label="Still home"><Brand /></a>
         <nav className="side-nav" aria-label="Wallet sections">
           {navigation.filter(({ id }) => id !== 'settings').map(({ id, label, icon: Icon }) => <a href={`#${id}`} aria-current={page === id ? 'page' : undefined} key={id}><Icon size={20} /><span>{label}</span></a>)}
         </nav>
@@ -326,7 +333,7 @@ export default function App() {
     </div>}
 
     {updateReady && <div className="update-banner button secondary" role="status"><Download size={16} /> Reload to update Still</div>}
-    <div className={`toast ${toast ? 'visible' : ''}`} role="status">{toast && <><Check size={18} />{toast}</>}</div>
+    <div className={`toast ${toast ? 'visible' : ''}${toast.endsWith('.') ? ' toast--warn' : ''}`} role="status">{toast && <>{toast.endsWith('.') ? <Info size={18} /> : <Check size={18} />}{toast}</>}</div>
 
     {[under?.modal, modal].map((sheet) => sheet && <div key={sheetKey(sheet)} className={sheet === modal ? (under ? 'sheet-over' : undefined) : under?.fading ? 'sheet-under fading' : 'sheet-under'}>{renderSheet(sheet)}</div>)}
   </div>
@@ -337,7 +344,7 @@ export default function App() {
     return <>
         {modal.type === 'access' && <Access locked={mode === 'locked'} intent={modal.intent} onSession={start} close={close} />}
         {modal.type === 'receive' && session && <Receive addresses={session.addresses} networks={displayedNetworks} initial={transferNetwork} initialAsset={modal.token} close={close} />}
-        {modal.type === 'swap' && session && <Swap from={modal.network ? { network: modal.network, asset: modal.token ?? modal.network } : undefined} close={close} quote={wallet.prepareSwap} submit={wallet.submit} finished={() => { closeSheet(); go('activity') }} />}
+        {modal.type === 'swap' && session && <Swap from={modal.network ? { network: modal.network, asset: modal.token ?? modal.network } : undefined} close={close} quote={wallet.prepareAnySwap} submit={wallet.submit} finished={() => { closeSheet(); go('activity') }} />}
         {modal.type === 'send' && session && <Send networks={displayedNetworks} initial={transferNetwork} initialAsset={modal.token} close={close} quote={wallet.prepare} submit={wallet.submit} finished={() => { closeSheet(); go('activity') }} />}
         {modal.type === 'asset' && selected && <AssetDetails network={selected} token={modal.token ? tokenById(modal.token) : undefined} amount={modal.token ? tokenAmount(modal.token) : assetAmount(selected)} noWallet={mode !== 'wallet'} close={close} send={(id) => openTransfer('send', id, modal.token)} receive={(id) => openTransfer('receive', id, modal.token)} swap={() => openTransfer('swap', selected.id, modal.token)} scramble={() => setModal({ type: 'scramble', network: selected.id, token: modal.token })} />}
         {modal.type === 'scramble' && <Scramble networks={displayedNetworks} initial={networks[modal.network]} initialAsset={modal.token ?? modal.network} close={close} />}
@@ -354,16 +361,18 @@ export default function App() {
             <ul className="credits-list">{team.map(([name, role]) => <li key={name}><span><strong>{name}</strong><small>{role}</small></span></li>)}</ul>
             <p className="dialog-intro">Supported by</p>
             <ul className="credits-list">{supporters.map(([name, role]) => <li key={name}><span><strong>{name}</strong><small>{role}</small></span></li>)}</ul>
+            <p className="dialog-intro">Data from</p>
+            <ul className="credits-list">{dataSources.map(([name, kind, use]) => <li key={name}><span><strong>{name}</strong><small>{use}</small></span><em>{kind}</em></li>)}</ul>
             <p className="dialog-intro">Built on these open-source projects:</p>
             <ul className="credits-list">
               {credits.map(([name, license, use]) => <li key={name}><span><strong>{name}</strong><small>{use}</small></span><em>{license}</em></li>)}
             </ul>
-            <p className="field-note">Prices from CoinGecko. Thanks to everyone who maintains these projects.</p>
+            <p className="field-note">Thanks to everyone who maintains these projects.</p>
           </div>
         </Dialog>}
         {modal.type === 'leave' && <Dialog title={modal.to === 'discord' ? 'Open Discord?' : 'Leave the wallet?'} close={close}>
           <div className="form"><span className="empty-icon">{modal.to === 'discord' ? <ExternalLink size={24} /> : <Info size={24} />}</span>
-            <p className="dialog-intro">{modal.to === 'discord' ? 'This opens the ow2 Discord in a new tab, outside Still.' : 'This takes you to the ow2 About page. Your wallet stays as it is.'}</p>
+            <p className="dialog-intro dialog-intro--center">{modal.to === 'discord' ? 'This opens the ow2 Discord in a new tab, outside Still Wallet.' : 'This takes you to the ow2 About page.'}</p>
             <div className="two-actions"><button className="button primary" onClick={close} autoFocus>Cancel</button><button className="button secondary" onClick={() => {
               if (modal.to === 'discord') { window.open(discord, '_blank', 'noopener,noreferrer'); closeSheet() }
               else { closeSheet(); window.setTimeout(() => { go('about') }, 280) }
@@ -380,7 +389,7 @@ export default function App() {
           <p className="dialog-intro">Sending and swapping require a connection to your selected RPC.</p>
           <a className="button primary wide" href="#settings" onClick={close}>Open privacy settings <ArrowRight size={17} /></a>
         </Dialog>}
-        {modal.type === 'wallets' && session && <WalletSwitcher wallets={wallet.wallets} active={session.id} close={close} select={(account) => { void wallet.switchWallet(account).then(closeSheet) }} add={() => { void wallet.addWallet().then(closeSheet) }} rename={wallet.rename} setEmoji={wallet.setEmoji} />}
+        {modal.type === 'wallets' && session && <WalletSwitcher wallets={wallet.wallets} active={session.id} close={close} select={(account) => { void wallet.switchWallet(account).then(closeSheet) }} add={() => { closeSheet(); toHome(); void wallet.addWallet() }} rename={wallet.rename} setEmoji={wallet.setEmoji} />}
         {modal.type === 'rename' && session && <RenameWallet current={wallet.name} close={close} save={(value) => { if (wallet.rename(value)) { closeSheet(); notify('Wallet renamed') } }} />}
         {modal.type === 'remove' && session && <RemoveWallet session={session} close={close} removed={() => { wallet.removed(); notify('Wallet deleted') }} />}
     </>
@@ -419,7 +428,7 @@ function RemoveWallet({ session, close, removed }: { session: Session; close: ()
 }
 
 // Locked: only the unlock form, no balances or names.
-function LockScreen({ mainRef, protect, onSession, removed }: { mainRef: RefObject<HTMLElement | null>; protect: boolean; onSession: (session: Session) => void; removed: (message: string) => void }) {
+function LockScreen({ mainRef, protect, preload, onSession, removed }: { mainRef: RefObject<HTMLElement | null>; protect: boolean; preload: (session: Session) => Promise<void>; onSession: (session: Session) => void; removed: (message: string) => void }) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -468,7 +477,9 @@ function LockScreen({ mainRef, protect, onSession, removed }: { mainRef: RefObje
       const { unlockVault } = await import('./vault')
       const session = await unlockVault(password)
       try { saveFailedUnlocks(0) } catch { /* Counter reset is best effort. */ }
-      // Password ok: open the padlock, then the wallet.
+      // Password ok: load balances while still on this screen, so the wallet opens filled in.
+      try { await preload(session) } catch { /* The wallet retries on its own. */ }
+      // Then open the padlock, then the wallet.
       setUnlocked(true)
       window.setTimeout(() => onSession(session), 650)
     } catch (problem) {
