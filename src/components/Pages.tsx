@@ -224,7 +224,7 @@ export function SettingsPage({ contacts, openContacts, importToken, phrase, slip
     </div>
     <p className="group-label">{t('About')}</p>
     <div className="group">
-      <button className="row" onClick={() => leave('about')}><span className="row-icon"><Info size={19} /></span><span className="row-text"><strong>{t('About ow2')}</strong></span><ExternalLink size={16} className="row-chevron" /></button>
+      <button className="row" onClick={() => leave('about')}><span className="row-icon"><Info size={19} /></span><span className="row-text"><strong>{t('About Still')}</strong></span><ExternalLink size={16} className="row-chevron" /></button>
       <button className="row" onClick={() => leave('discord')}><span className="row-icon"><MessageCircle size={19} /></span><span className="row-text"><strong>Discord</strong></span><ExternalLink size={16} className="row-chevron" /></button>
       <a className="row" href="#faq"><span className="row-icon"><CircleHelp size={19} /></span><span className="row-text"><strong>FAQ</strong></span><ChevronRight size={18} className="row-chevron" /></a>
       <a className="row" href="#privacy"><span className="row-icon"><ShieldCheck size={19} /></span><span className="row-text"><strong>{t('Privacy Policy')}</strong></span><ChevronRight size={18} className="row-chevron" /></a>

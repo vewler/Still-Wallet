@@ -60,7 +60,6 @@ export function ConnectedApps({ close, offline, initialLink = '' }: { close: () 
   const [loading, setLoading] = useState(!offline)
   const [scanning, setScanning] = useState(false)
   // After the camera failed once, the next try opens it before leaving the list, so a repeat failure keeps the error still.
-  const cameraFailed = useRef(false)
   const [camera, setCamera] = useState<MediaStream>()
   const [ending, setEnding] = useState('')
   const started = useRef(false)
@@ -95,11 +94,9 @@ export function ConnectedApps({ close, offline, initialLink = '' }: { close: () 
   }, [])
 
   async function scan() {
-    if (!cameraFailed.current) { setError(''); setScanning(true); return }
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error('unsupported')
       const media = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
-      cameraFailed.current = false
       setError('')
       setCamera(media)
       setScanning(true)
@@ -128,7 +125,7 @@ export function ConnectedApps({ close, offline, initialLink = '' }: { close: () 
 
   return <Dialog title={scanning ? t('Scan QR code') : t('Connected apps')} step={scanning ? 'scan' : 'list'} close={close} busy={busy}>
     {scanning ? <div className="form">
-      <Scanner stream={camera} found={(value) => { setScanning(false); setCamera(undefined); setLink(value); void connect(value) }} failed={(problem) => { cameraFailed.current = true; setScanning(false); setCamera(undefined); setError(problem); setTries((count) => count + 1) }} />
+      <Scanner stream={camera} found={(value) => { setScanning(false); setCamera(undefined); setLink(value); void connect(value) }} failed={(problem) => { setScanning(false); setCamera(undefined); setError(problem); setTries((count) => count + 1) }} />
       <p className="field-note">{t('Point the camera at the WalletConnect QR code on the app’s site.')}</p>
       <button className="button text-button wide" onClick={() => { setScanning(false); setCamera(undefined) }}><ArrowLeft size={16} /> Back</button>
     </div> : <form className="form" onSubmit={(event: FormEvent) => { event.preventDefault(); void connect() }}>
