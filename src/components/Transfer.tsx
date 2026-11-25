@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { ArrowLeft, ArrowRight, ArrowUp, Box, Check, Copy, ExternalLink, QrCode, ShieldAlert, Shuffle } from 'lucide-react'
+import { flushSync } from 'react-dom'
+import { ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Box, Check, Copy, ExternalLink, QrCode, ShieldAlert, Shuffle } from 'lucide-react'
 import { addressFor, crossNetworks, explorerUrl, networks as mainnets, type Addresses, type Network, type NetworkId } from '../networks'
 import type { Quote } from '../rpc'
 import type { ActivityItem, Contact } from '../storage'
@@ -100,7 +101,7 @@ const swapAssets = crossNetworks.flatMap((id) => [id as string, ...tokens.filter
 
 function SwapAssetField({ label, value, change }: { label: string; value: string; change: (asset: string) => void }) {
   return <div className="field"><span>{t(label)}</span>
-    <Picker label={t(label)} value={value} onChange={change} options={swapAssets.map((id) => {
+    <Picker label={t(label)} value={value} onChange={change} search={t('Search tokens')} empty={t('No tokens found')} options={swapAssets.map((id) => {
       const token = tokenById(id)
       const network = mainnets[(token?.network ?? id) as NetworkId]
       return { value: id, label: token?.symbol ?? network.symbol, sub: token ? `${token.name} · ${network.name}` : network.name, icon: token ? <TokenIcon token={token} /> : <Coin chain={network.chain} /> }
@@ -108,7 +109,27 @@ function SwapAssetField({ label, value, change }: { label: string; value: string
   </div>
 }
 
-export function Swap({ quote, from, ...actions }: TransactionActions & {
+/** Switch the two coins: both boxes slide past each other into their new place while the arrow turns. */
+function flipSwap(button: HTMLButtonElement, swap: () => void) {
+  const pay = button.previousElementSibling?.querySelector<HTMLElement>('.picker-button')
+  const receive = button.nextElementSibling?.querySelector<HTMLElement>('.picker-button')
+  if (!pay || !receive) return swap()
+  const distance = receive.getBoundingClientRect().top - pay.getBoundingClientRect().top
+  flushSync(swap)
+  const timing = { duration: 420, easing: 'cubic-bezier(.2, .8, .2, 1)' }
+  const slide = (box: HTMLElement, from: number) => box.animate([
+    { transform: `translateY(${from}px)`, opacity: 1 },
+    { transform: `translateY(${from / 2}px) scale(.96)`, opacity: .55, offset: .5 },
+    { transform: 'none', opacity: 1 },
+  ], timing)
+  slide(pay, distance)
+  slide(receive, -distance)
+  button.querySelector('svg')?.animate([{ transform: 'rotate(0deg)' }, { transform: 'rotate(180deg)' }], timing)
+}
+
+export function Swap({ quote, from, customSlippage, ...actions }: TransactionActions & {
+  /** Custom slippage from Settings, in basis points. Adds a Custom option when set. */
+  customSlippage?: number
   quote: (sell: string, buy: string, amount: string, signal: AbortSignal, slippage: number) => Promise<Quote>
   /** From a coin sheet: preselect that coin if it can be swapped. */
   from?: { network: NetworkId; asset: string }
@@ -123,28 +144,29 @@ export function Swap({ quote, from, ...actions }: TransactionActions & {
   const sellNetwork = tokenById(sell)?.network ?? sell
   const buyNetwork = tokenById(buy)?.network ?? buy
   const uniswap = sellNetwork === buyNetwork && (sellNetwork === 'ethereum-main' || sellNetwork === 'base-main')
-  return <TransactionDialog {...actions} title="Swap" prepare={(signal) => quote(sell, buy, amount, signal, slippage)}>
+  return <TransactionDialog {...actions} title="Swap" prepare={(signal) => quote(sell, buy, amount, signal, slippage === -1 ? customSlippage ?? 0 : slippage)}>
     <SwapAssetField label="You pay" value={sell} change={(next) => { if (next === buy) setBuy(sell); setSell(next) }} />
+    <button type="button" className="swap-flip" aria-label={t('Switch coins')} title={t('Switch coins')} onClick={(event) => flipSwap(event.currentTarget, () => { setSell(buy); setBuy(sell) })}><ArrowUpDown size={17} /></button>
     <SwapAssetField label="You receive" value={buy} change={(next) => { if (next === sell) setSell(buy); setBuy(next) }} />
     <label className="field">{t('Amount in {symbol}', { symbol: tokenById(sell)?.symbol ?? mainnets[sell as NetworkId].symbol })}<input name="amount" inputMode="decimal" autoComplete="off" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.target.value)} maxLength={36} required /></label>
     <div className="field"><span>{t('Max slippage')}</span>
-      <Picker label={t('Max slippage')} value={slippage} onChange={setSlippage} options={[0, 50, 100, 200, 300].map((value) => ({ value, label: value ? `${value / 100}%` : t('Auto'), sub: !value ? t('Recommended, picked for each swap') : value < 100 ? t('May fail when prices move') : value > 100 ? t('Fills more often, can cost more') : t('Standard') }))} />
+      <Picker label={t('Max slippage')} value={slippage} onChange={setSlippage} options={[...[0, 50, 100, 200, 300].map((value) => ({ value, label: value ? `${value / 100}%` : t('Auto'), sub: !value ? t('Recommended, picked for each swap') : value < 100 ? t('May fail when prices move') : value > 100 ? t('Fills more often, can cost more') : t('Standard') })),
+        ...(customSlippage ? [{ value: -1, label: `${t('Custom')} ${customSlippage / 100}%`, sub: t('Set in Settings') }] : [])]} />
     </div>
     <Glide><p key={String(uniswap)} className="field-note">{uniswap ? t('Swaps on the same network use Uniswap v2. Liquidity varies by pair and amount.') : t('Swaps between networks use NEAR Intents. The new coins land in this wallet, usually within a few minutes.')}</p></Glide>
   </TransactionDialog>
 }
 
 /** Scramble, front end only for now: pick a token and amount and see the flow. Nothing is sent, no addresses are made
- *  and no network requests run; the button only says it isn't ready yet. */
+ *  and no network requests run; the button is disabled. */
 export function Scramble({ networks, initial, initialAsset, close }: { networks: Network[]; initial?: Network; initialAsset?: string; close: () => void }) {
   const [network, setNetwork] = useState(initial ?? networks[0])
   const [asset, setAsset] = useState(initialAsset ?? network.id)
   const [amount, setAmount] = useState('')
   const [level, setLevel] = useState('balanced')
-  const [tried, setTried] = useState(0)
   const symbol = tokenById(asset)?.symbol ?? network.symbol
   return <Dialog title={t('Scramble')} close={close}>
-    <form className="form" onSubmit={(event) => { event.preventDefault(); setTried((value) => value + 1) }}>
+    <form className="form" onSubmit={(event) => event.preventDefault()}>
       <p className="dialog-intro">{t('Move tokens to a brand-new wallet through a mix, so the new wallet can’t be linked to this one.')}</p>
       <NetworkField networks={networks} selected={network} change={(next) => { setNetwork(next); setAsset(next.id) }} />
       <AssetField network={network} label="Token" value={asset} change={setAsset} />
@@ -157,8 +179,7 @@ export function Scramble({ networks, initial, initialAsset, close }: { networks:
         ]} />
       </div>
       <div className="field"><span>{t('Goes to')}</span><div className="scramble-target">{t('A new wallet, created on this device')}</div></div>
-      <Slot open={tried > 0}><Notice key={tried}>{t('Scramble is still being built. Nothing was sent.')}</Notice></Slot>
-      <button className="button primary wide" type="submit">{t('Scramble {symbol}', { symbol })}</button>
+      <button className="button unavailable wide" type="submit" disabled>{t('Unavailable')}</button>
     </form>
   </Dialog>
 }
@@ -176,14 +197,13 @@ function TransactionDialog({ title, close, prepare, submit, finished, contactNam
 
   async function reviewTransfer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setError('')
     setBusy(true)
     request.current?.abort()
     const controller = new AbortController()
     request.current = controller
     try {
       const transfer = await prepare(controller.signal)
-      if (!controller.signal.aborted) setReview(transfer)
+      if (!controller.signal.aborted) { setError(''); setReview(transfer) }
     } catch (problem) {
       if (!controller.signal.aborted) {
         const message = problem instanceof Error && !('details' in problem) && problem.message.length < 180 ? problem.message : 'The RPC could not prepare this transfer. Check your balance and network settings.'
@@ -203,7 +223,6 @@ function TransactionDialog({ title, close, prepare, submit, finished, contactNam
   async function confirm() {
     if (!review || busy) return
     setBusy(true)
-    setError('')
     try { setItem(await submit(review)) }
     catch (problem) {
       setError(problem instanceof Error && !('details' in problem) && problem.message.length < 180 ? problem.message : 'Still could not sign this transaction. Refresh the quote and try again.')

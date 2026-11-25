@@ -95,16 +95,16 @@ export function CreditsPage({ mainRef, back }: { mainRef: Ref<HTMLElement>; back
         {supporters.map(([name, role]) => <li key={name}><span>{name}<br /><small>{t(role)}</small></span></li>)}
       </ul>
 
-      <h2>{t('Data from')}</h2>
-      <ul className="credits-page-list">
-        {dataSources.map(([name, kind, use]) => <li key={name}><span>{name}<br /><small>{t(use)}</small></span><em>{t(kind)}</em></li>)}
-      </ul>
-
       <h2>{t('Built with')}</h2>
       <ul className="credits-page-list">
         {credits.map(([name, license, use]) => <li key={name}><span>{name}<br /><small>{t(use)}</small></span><em>{license}</em></li>)}
       </ul>
       <p>{t('Thanks to everyone who maintains these projects.')}</p>
+
+      <h2>{t('Data from')}</h2>
+      <ul className="credits-page-list">
+        {dataSources.map(([name, kind, use]) => <li key={name}><span>{name}<br /><small>{t(use)}</small></span><em>{t(kind)}</em></li>)}
+      </ul>
     </main>
 
     <footer className="landing-footer landing-container">
@@ -117,7 +117,7 @@ export function CreditsPage({ mainRef, back }: { mainRef: Ref<HTMLElement>; back
 const faq: [question: string, answer: string][] = [
   ['What is Still?', 'A self-custody crypto wallet that runs in your browser. There is no account or email: your wallet is a recovery phrase that only you hold.'],
   ['Where are my keys kept?', 'On this device only. Your recovery phrase is encrypted with your password (AES-256-GCM, key derived with PBKDF2 using 600,000 rounds) and saved in this browser. It is never sent anywhere.'],
-  ['I forgot my password. What now?', 'Still can’t reset it, because nobody else has it. Use “Forgot password” to erase the wallet from this device, then import it again with your recovery phrase and pick a new password.'],
+  ['I forgot my password. What now?', 'Use “Forgot password” on the lock screen and enter your recovery phrase. If it matches, you pick a new password and keep everything. Nobody else has your password, so without the phrase the only way back in is to delete the wallet and import it again.'],
   ['What if I lose my recovery phrase?', 'Nobody can recover it for you. If you lose the phrase and this browser’s data is cleared or the device is lost, the funds are gone. Write it down on paper and keep it somewhere private.'],
   ['Which networks are supported?', 'Bitcoin, Ethereum, Solana, XRP Ledger, BNB Chain, HyperEVM and Base, all on mainnet, plus popular stablecoins and other tokens on Ethereum, Solana and Base.'],
   ['Does Still charge fees?', 'No. You only pay the network fee, which is shown on the review screen before you sign.'],
@@ -159,7 +159,7 @@ export function FaqPage({ mainRef, back }: { mainRef: Ref<HTMLElement>; back: st
 
 /** Unknown paths, and wallet pages opened with no wallet on this device. */
 export function ErrorPage({ mainRef, kind }: { mainRef: Ref<HTMLElement>; kind: 'missing' | 'denied' }) {
-  const [title, text] = kind === 'missing' ? ['Page not found', 'This page doesn’t exist or has moved.'] : ['No access', 'You can’t open this without a wallet on this device. Create or import one first.']
+  const [code, title, text] = kind === 'missing' ? ['404', 'Page not found', 'This page doesn’t exist or has moved.'] : ['403', 'No access', 'You can’t open this without a wallet on this device. Create or import one first.']
   return <div className="landing">
     <header className="landing-header">
       <div className="landing-container landing-header-inner">
@@ -168,14 +168,11 @@ export function ErrorPage({ mainRef, kind }: { mainRef: Ref<HTMLElement>; kind: 
     </header>
 
     <main id="main-content" ref={mainRef} tabIndex={-1} className="landing-main landing-container policy not-found">
+      <div className="error-code" aria-hidden="true">{code}</div>
       <h1>{t(title)}</h1>
       <p>{t(text)}</p>
       <a className="button primary landing-button landing-button--big" href="/"><ArrowLeft size={18} /> {t('Back to Still')}</a>
     </main>
 
-    <footer className="landing-footer landing-container">
-      <span><strong>Still</strong></span>
-      <a href="/LICENSE.txt" target="_blank" rel="noreferrer">{t('MIT License')}</a>
-    </footer>
   </div>
 }

@@ -15,7 +15,7 @@ type History = { points: number[]; first: number; last: number }
 
 // Phone and desktop keep separate chart lists.
 const layoutKey = () => `still.charts.v1.${document.documentElement.dataset.layout ?? 'desktop'}`
-const defaultIds = ['bitcoin-main', 'ethereum-main', 'solana-main', 'bnb-main']
+const defaultIds = ['bitcoin-main', 'ethereum-main', 'solana-main', 'litecoin-main', 'bnb-main']
 const defaultCharts: AssetLayout = { order: defaultIds, shown: defaultIds }
 
 /** One chart per price (USDC on 3 chains = 1 chart). */

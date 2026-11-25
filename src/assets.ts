@@ -25,7 +25,16 @@ export function allAssets(environment: Environment): Asset[] {
 }
 
 /** Default coins for new wallets. The rest are in Manage. */
-export const defaultShown = ['bitcoin-main', 'ethereum-main', 'solana-main', 'ethereum-main:USDC', 'ethereum-main:USDT']
+export const defaultShown = ['bitcoin-main', 'ethereum-main', 'solana-main', 'litecoin-main', 'bnb-main']
+
+/** Manage tokens shows only these (plus the user's own tokens) until you search. Most used first. */
+export const popularAssets = [
+  'bitcoin-main', 'ethereum-main', 'solana-main', 'xrp-main', 'bnb-main',
+  'ethereum-main:USDT', 'ethereum-main:USDC', 'tron-main:USDT', 'solana-main:USDC',
+  'dogecoin-main', 'tron-main', 'cardano-main', 'hyperevm-main', 'litecoin-main', 'avalanche-main', 'sui-main', 'ton-main',
+  'monero-main', 'ethereum-main:LINK', 'bitcoincash-main', 'zcash-main', 'polygon-main', 'base-main', 'arbitrum-main',
+  'ethereum-main:SHIB', 'ethereum-main:PEPE', 'solana-main:BONK', 'solana-main:WIF', 'solana-main:TRUMP', 'ethereum-main:UNI',
+]
 
 export type AssetLayout = { order: string[]; shown: string[] }
 export const defaultLayout: AssetLayout = { order: defaultShown, shown: defaultShown }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type Ref } from 'react'
-import { ArrowLeft, ArrowRight, ArrowUp, Globe2, KeyRound, LockKeyhole, QrCode, RefreshCw, ShieldCheck, Shuffle, Timer, Wallet, WifiOff } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ArrowUp, CodeXml, Globe2, KeyRound, LockKeyhole, QrCode, RefreshCw, ShieldCheck, Shuffle, Timer, Wallet, WifiOff } from 'lucide-react'
 import { Brand, Coin, TokenIcon } from './Icons'
 import { CrossFade, MorphLine } from './Charts'
 import { networks, type Chain } from '../networks'
@@ -258,6 +258,30 @@ export function Landing({ mode, mainRef, openWallet }: LandingProps) {
 
       <MarketSection action={mode === 'none' ? t('Watch it in Still') : action} openWallet={openWallet} />
 
+      <section className="landing-section landing-container open-source" aria-labelledby="open-source-title">
+        <div className="section-head reveal">
+          <h2 id="open-source-title">{t('Open source.')}<br /><span className="muted-text">{t('Nothing hidden.')}</span></h2>
+          <span className="eyebrow">{t('Open source')}</span>
+        </div>
+        <div className="open-source-grid">
+          <article className="feature-card hover-card reveal">
+            <span className="feature-icon"><CodeXml size={22} /></span>
+            <h3>{t('Read every line')}</h3>
+            <p>{t('Still is MIT licensed and the full source is public on GitHub. Check how it works, build it yourself or help make it better.')}</p>
+            <a className="github-badge" href="https://github.com/vewler/Still-Wallet" target="_blank" rel="noreferrer">
+              <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" /></svg>
+              <span>vewler/Still-Wallet</span>
+              <b>MIT</b>
+            </a>
+          </article>
+          <article className="feature-card hover-card reveal" style={{ '--d': '70ms' } as CSSProperties}>
+            <span className="feature-icon"><WifiOff size={22} /></span>
+            <h3>{t('Offline alternatives')} <span className="soon-tag">{t('Coming soon')}</span></h3>
+            <p>{t('Offline ways to use Still are on the way, so you can keep your keys even further from the internet.')}</p>
+          </article>
+        </div>
+      </section>
+
       <section className="landing-cta reveal" aria-labelledby="cta-title">
         <div className="landing-container cta-inner">
           <h2 id="cta-title">{t('Ready to hold your own keys?')}</h2>
@@ -266,9 +290,10 @@ export function Landing({ mode, mainRef, openWallet }: LandingProps) {
       </section>
 
       <section id="about" className="landing-about landing-container reveal" aria-labelledby="about-title" tabIndex={-1}>
-        <h2 id="about-title">{t('About ow2')}</h2>
+        <h2 id="about-title">{t('About Still')}</h2>
         <div>
           <p>{t('ow2 created Still as an open-source wallet for people who want to hold their own keys and choose how they connect to a network.')}</p>
+          <p>{t('Still is privacy first. No sign up, no tracking, and your keys never leave your device. There is no buy with card either, because that needs KYC.')}</p>
           <a className="landing-community" href={discord} target="_blank" rel="noreferrer">{t('Join the Discord')} <ArrowRight size={18} /></a>
         </div>
       </section>

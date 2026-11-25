@@ -23,6 +23,7 @@ export function Access({ locked, intent, close, onSession }: {
   const [error, setError] = useState('')
   const [tries, setTries] = useState(0)
   const [busy, setBusy] = useState(false)
+  const [unlocked, setUnlocked] = useState(false)
   const [origin, setOrigin] = useState<'verify' | 'import'>('verify')
   const [back, setBack] = useState(false)
 
@@ -63,7 +64,8 @@ export function Access({ locked, intent, close, onSession }: {
     try {
       const { unlockVault, createVault } = await vault()
       const session = step === 'unlock' ? await unlockVault(password) : await createVault(phrase, password)
-      if (step === 'unlock') { onSession(session); return }
+      // Same as the lock screen: open the padlock, then the wallet.
+      if (step === 'unlock') { setUnlocked(true); setTimeout(() => onSession(session), 650); return }
       // Short success beat before the wallet opens.
       setBack(false)
       setStep('done')
@@ -80,7 +82,7 @@ export function Access({ locked, intent, close, onSession }: {
     import: t('Import a wallet'), password: t('Set a password'), unlock: t('Unlock Still'), done: t('Wallet ready'),
   }
 
-  return <Dialog title={titles[step]} close={close} busy={busy || step === 'done'} back={back}>
+  return <Dialog title={titles[step]} close={close} busy={busy || unlocked || step === 'done'} back={back}>
     {step === 'done' && <div className="setup-done">
       <span className="setup-done-check" aria-hidden="true"><svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" pathLength="1" /></svg></span>
       <strong>{t('You’re all set')}</strong>
@@ -115,9 +117,11 @@ export function Access({ locked, intent, close, onSession }: {
         {step === 'password' && <label className="field">{t('Confirm pass⁠word')}<PasswordInput value={confirmation} onChange={(event) => setConfirmation(event.target.value)} required maxLength={256} /></label>}
       </>}
       <ErrorSlot error={error} attempt={tries} />
-      <button type="submit" className="button primary wide" disabled={busy}>
-        {busy ? <LoaderCircle size={17} className="spin" /> : (step === 'password' || step === 'unlock') && <LockKeyhole size={17} />}
-        {busy ? t('Opening vault…') : step === 'unlock' ? t('Unlock wallet') : step === 'password' ? t('Save wallet') : t('Continue')}
+      <button type="submit" className="button primary wide" disabled={busy || unlocked}>
+        {unlocked ? <span key="open" className="label-swap"><LockKeyhole size={17} className="unlocking" />{t('Unlocked')}</span> : <>
+          {busy ? <LoaderCircle size={17} className="spin" /> : (step === 'password' || step === 'unlock') && <LockKeyhole size={17} />}
+          {busy ? t('Opening vault…') : step === 'unlock' ? t('Unlock wallet') : step === 'password' ? t('Save wallet') : t('Continue')}
+        </>}
       </button>
       {step !== 'unlock' && <button type="button" className="button text-button wide" disabled={busy} onClick={() => changeStep(step === 'verify' ? 'create' : step === 'password' ? origin : 'choose')}><ArrowLeft size={16} /> {t('Back')}</button>}
     </form>}

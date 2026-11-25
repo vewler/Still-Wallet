@@ -86,7 +86,7 @@ export const networks: Record<NetworkId, Network> = {
 }
 
 /** Networks swaps work on (NEAR Intents). Monero and HyperEVM aren't supported there. */
-export const crossNetworks: NetworkId[] = ['bitcoin-main', 'ethereum-main', 'solana-main', 'bnb-main', 'xrp-main', 'base-main', 'dogecoin-main', 'tron-main', 'litecoin-main', 'bitcoincash-main', 'zcash-main', 'avalanche-main', 'polygon-main', 'arbitrum-main', 'optimism-main', 'scroll-main', 'sui-main', 'aptos-main', 'cardano-main']
+export const crossNetworks: NetworkId[] = ['bitcoin-main', 'ethereum-main', 'solana-main', 'bnb-main', 'xrp-main', 'base-main', 'dogecoin-main', 'tron-main', 'litecoin-main', 'bitcoincash-main', 'zcash-main', 'avalanche-main', 'polygon-main', 'arbitrum-main', 'optimism-main', 'scroll-main', 'sui-main', 'aptos-main', 'cardano-main', 'dash-main', 'stellar-main']
 
 /** CoinGecko asset platforms, used to price imported tokens by contract. */
 export const pricePlatforms: Partial<Record<NetworkId, string>> = {

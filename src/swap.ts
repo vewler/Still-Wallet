@@ -1,6 +1,7 @@
 import { encodeFunctionData, erc20Abi, getAddress, parseAbi } from 'viem'
 import { addressFor, crossNetworks, formatAmount, networks, parseAmount, type Addresses, type Network, type NetworkId } from './networks'
 import { evmClient, quoteEvm, type Quote } from './rpc'
+import { validCustomSlippage } from './storage'
 import { tokenById } from './tokens'
 
 const routerAbi = parseAbi([
@@ -22,7 +23,7 @@ const stablecoins = ['USDC', 'USDT', 'DAI']
 
 /** `slippage` is in basis points (100 = 1%); 0 means Auto. */
 export async function quoteSwap(network: Network, endpoint: string, owner: string, sellId: string, buyId: string, amount: string, signal: AbortSignal, slippage = 0) {
-  if (!slippageOptions.includes(slippage)) throw new Error('Choose a supported slippage.')
+  if (!slippageOptions.includes(slippage) && !validCustomSlippage(slippage)) throw new Error('Choose a supported slippage.')
   if (!swapNetworks.includes(network.id as SwapNetwork)) throw new Error('Select Ethereum or Base to swap.')
   const { router, weth } = deployments[network.id as SwapNetwork]
   const sell = sellId === network.id ? undefined : tokenById(sellId)
@@ -81,7 +82,7 @@ export async function quoteSwap(network: Network, endpoint: string, owner: strin
 const blockchains: Partial<Record<NetworkId, string>> = {
   'bitcoin-main': 'btc', 'ethereum-main': 'eth', 'solana-main': 'sol', 'bnb-main': 'bsc', 'xrp-main': 'xrp', 'base-main': 'base',
   'dogecoin-main': 'doge', 'tron-main': 'tron', 'litecoin-main': 'ltc', 'bitcoincash-main': 'bch', 'zcash-main': 'zec', 'avalanche-main': 'avax', 'polygon-main': 'pol', 'arbitrum-main': 'arb', 'optimism-main': 'op', 'scroll-main': 'scroll',
-  'sui-main': 'sui', 'aptos-main': 'aptos', 'cardano-main': 'cardano',
+  'sui-main': 'sui', 'aptos-main': 'aptos', 'cardano-main': 'cardano', 'dash-main': 'dash', 'stellar-main': 'stellar',
 }
 /** Some chains list the native coin with its on-chain type as the contract. */
 const nativeContracts = new Set(['0x2::sui::sui', '0x0000000000000000000000000000000000000000000000000000000000000002::sui::sui', '0x1::aptos_coin::aptoscoin', '0xa'])
@@ -125,7 +126,7 @@ type IntentQuote = { quote: { depositAddress?: string; depositMemo?: string; amo
  *  `transfer` builds the normal send to that address, so signing is the same as Send. */
 export async function quoteCrossSwap(addresses: Addresses, sellId: string, buyId: string, amount: string, signal: AbortSignal, slippage: number,
   transfer: (network: Network, to: string, amount: string, asset?: string, tag?: string) => Promise<Quote>) {
-  if (!slippageOptions.includes(slippage)) throw new Error('Choose a supported slippage.')
+  if (!slippageOptions.includes(slippage) && !validCustomSlippage(slippage)) throw new Error('Choose a supported slippage.')
   if (sellId === buyId) throw new Error('Pick two different coins.')
   const sellNetwork = assetNetwork(sellId)
   const buyNetwork = assetNetwork(buyId)
@@ -137,7 +138,7 @@ export async function quoteCrossSwap(addresses: Addresses, sellId: string, buyId
   const chosen = slippage || (sell && buy && stablecoins.includes(sell.symbol) && stablecoins.includes(buy.symbol) ? 50 : 100)
   const { quote } = await swapApi<IntentQuote>('quote', signal, {
     dry: false, swapType: 'EXACT_INPUT', slippageTolerance: chosen,
-    originAsset: origin.assetId, depositType: 'ORIGIN_CHAIN', destinationAsset: destination.assetId, amount: input.toString(),
+    originAsset: origin.assetId, depositType: 'ORIGIN_CHAIN', ...sellNetwork.chain === 'stellar' ? { depositMode: 'MEMO' } : {}, destinationAsset: destination.assetId, amount: input.toString(),
     refundTo: addressFor(sellNetwork, addresses), refundType: 'ORIGIN_CHAIN',
     recipient: addressFor(buyNetwork, addresses), recipientType: 'DESTINATION_CHAIN',
     deadline: new Date(Date.now() + 30 * 60_000).toISOString(),

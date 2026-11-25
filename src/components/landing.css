@@ -113,9 +113,9 @@
 .chain-logos.is-measuring > span { display: inline-flex !important; }
 .chain-logos:not(.is-short) .chain-symbol, .chain-logos.is-short .chain-name { display: none; }
 /* Outlined box spans the full width; coins spread to both ends. Label above and "and more" below sit outside it */
-.chain-logos { display: grid; grid-template-columns: repeat(var(--cols, 4), auto); justify-content: space-between; justify-items: start; gap: 12px 14px; width: 100%; padding: 14px 18px; border: 1px solid var(--landing-line); border-radius: 18px; background: #0a0a0c; text-align: left; }
-/* Full width so all fit in one row as soon as they can */
-.landing-chains .chains-inner { width: calc(100% - 40px); }
+.chain-logos { display: grid; grid-template-columns: repeat(var(--cols, 4), auto); justify-content: space-between; justify-items: start; gap: 12px 14px; width: 100%; padding: 14px 38px; border-block: 1px solid var(--landing-line); border-radius: 0; background: #0a0a0c; text-align: left; }
+/* Box runs edge to edge, no rounded sides */
+.landing-chains .chains-inner { width: 100%; }
 /* Same size at every width, so a wider window never fits fewer coins */
 .chain-logos > span { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; color: #d8d8de; font-size: 14px; font-weight: 640; }
 .chain-logos .coin { width: 32px; height: 32px; }
@@ -124,17 +124,16 @@
 .chain-logos .coin--token b { font-size: 9px; letter-spacing: -.05em; }
 /* Phones: tighter box so 4 per row fit with even padding */
 @media (max-width: 640px) {
-  .landing-chains .chains-inner { width: calc(100% - 24px); }
-  .chain-logos { padding: 12px 14px; column-gap: 12px; }
+  .chain-logos { padding: 12px 26px; column-gap: 12px; }
 }
 /* Small phones: a bit tighter so 4 per row still fit */
 @media (max-width: 420px) {
-  .chain-logos { column-gap: 10px; padding-inline: 12px; }
+  .chain-logos { column-gap: 10px; padding-inline: 24px; }
   .chain-logos > span { gap: 7px; font-size: 13px; }
   .chain-logos .coin { width: 28px; height: 28px; }
 }
 @media (max-width: 340px) {
-  .chain-logos { column-gap: 8px; padding-inline: 10px; }
+  .chain-logos { column-gap: 8px; padding-inline: 22px; }
   .chain-logos > span { gap: 5px; font-size: 12px; }
   .chain-logos .coin { width: 24px; height: 24px; }
   .chain-logos .coin svg { width: 14px; height: 14px; }
@@ -175,6 +174,7 @@
 .landing-about { display: grid; grid-template-columns: minmax(0, .92fr) minmax(0, 1.08fr); gap: 25px; padding-block: clamp(40px, 5vw, 72px); outline: none; scroll-margin-top: 90px; }
 .landing-about h2 { font-size: clamp(30px, 3.6vw, 52px); font-weight: 740; letter-spacing: -.055em; line-height: 1.1; }
 .landing-about p { max-width: 51ch; color: #b9b9c4; font-size: 17px; line-height: 1.6; }
+.landing-about p + p { margin-top: 14px; }
 .landing-community { display: inline-flex; align-items: center; gap: 9px; min-height: 44px; margin-top: 7px; font-size: 15px; font-weight: 600; transition: color .15s; }
 .landing-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 74px; padding-block: 14px; border-top: 1px solid var(--landing-line); color: var(--muted); font-size: 13px; }
 .landing-footer strong { margin-right: 4px; color: var(--text); }
@@ -251,12 +251,23 @@
 .credits-page-list li + li { border-top: 1px solid var(--landing-line); }
 .credits-page-list small { color: #6c6c76; font-size: 13px; }
 .credits-page-list em { color: #6c6c76; font-size: 13px; font-style: normal; white-space: nowrap; }
+/* Open source */
+.open-source-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.open-source-grid h3 { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.soon-tag { padding: 4px 10px; border-radius: 999px; background: #397bff1f; color: var(--link); font-size: 12px; font-weight: 640; letter-spacing: .04em; text-transform: uppercase; }
+.github-badge { display: inline-flex; align-items: center; gap: 9px; min-height: 44px; margin-top: 20px; padding: 0 6px 0 14px; border-radius: 999px; border: 1px solid var(--landing-line); background: #ffffff0a; color: #fff; font-size: 15px; font-weight: 600; transition: border-color .15s, background .15s; }
+.github-badge b { padding: 4px 10px; border-radius: 999px; background: #397bff; color: #fff; font-size: 12px; font-weight: 700; letter-spacing: .04em; }
+@media (max-width: 640px), (pointer: coarse) {
+  .open-source-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* Hover only for real mice */
 @media (hover: hover) and (pointer: fine) {
   .landing-nav-link:hover, .landing-footer a:hover { color: #fff; }
   .landing .landing-button.secondary:hover { background: #ffffff14; }
   :root .landing .landing-cta .landing-button.primary:hover:not(:disabled) { background: #e8eeff; box-shadow: 0 0 0 2px #fff, 0 16px 50px #0004; }
   .landing-community:hover { color: var(--link); }
+  .github-badge:hover { border-color: #397bff55; background: #ffffff14; }
   .feature-card.is-hover, .security-stats div.is-hover, .steps li.is-hover, .float-card.is-hover { border-color: #397bff55; }
 }
 /* FAQ: answer slides open, chevron rotates */
@@ -352,3 +363,4 @@
 /* 404 */
 .not-found { display: grid; align-content: center; justify-items: start; gap: 18px; min-height: 60dvh; }
 .not-found p { margin: 0; }
+.error-code { margin-bottom: -6px; font-size: clamp(96px, 26vw, 168px); font-weight: 800; line-height: .9; letter-spacing: -.05em; font-variant-numeric: tabular-nums; color: var(--text); user-select: none; }

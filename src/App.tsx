@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type RefObject } from 'react'
-import { Activity, ArrowLeft, ExternalLink, Info, ChartLine, ArrowRight, Check, ChevronDown, Download, Eye, EyeOff, House, Layers3, LoaderCircle, LockKeyhole, Pencil, Plus, ScanFace, Settings, ShieldAlert, WifiOff, X } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
+import { Activity, ArrowLeft, ExternalLink, Info, KeyRound, ChartLine, ArrowRight, Check, ChevronDown, Download, Eye, EyeOff, GripVertical, House, Layers3, LoaderCircle, LockKeyhole, Pencil, Plus, ScanFace, Settings, ShieldAlert, SlidersHorizontal, Trash2, WifiOff, X } from 'lucide-react'
 import { Brand } from './components/Icons'
 import { passwordRules } from './passwords'
 import { registerSW } from 'virtual:pwa-register'
@@ -11,11 +12,12 @@ import { Contacts } from './components/Contacts'
 import type { Session } from './vault'
 import { disablePasskey, enablePasskey, passkeyDevice, passkeyOn, unlockWithPasskey, type PasskeySetup } from './passkey'
 import { Overview } from './components/Overview'
-import { ActivityPage, NetworksPage, RpcDialog, SettingsPage } from './components/Pages'
+import { ActivityPage, NetworksPage, RpcDialog, SettingsPage, SlippageDialog } from './components/Pages'
 import { ChartsPage, prefetchCharts } from './components/Charts'
 import { Landing, discord } from './components/Landing'
 import { credits, dataSources, supporters, team } from './credits'
 import { ManageCoins } from './components/Manage'
+import { ImportToken } from './components/ImportToken'
 import { smoothScrollTo } from './scroll'
 import { CreditsPage, ErrorPage, FaqPage, PrivacyPolicy } from './components/Privacy'
 import { Dialog, ErrorSlot, Notice, PasswordInput } from './components/Dialog'
@@ -49,7 +51,7 @@ type Modal =
   | { type: 'rpc'; network: NetworkId }
   | { type: 'swap'; network?: NetworkId; token?: string }
   | { type: 'scramble'; network: NetworkId; token?: string }
-  | { type: 'manage' | 'credits' | 'protect' | 'remove' | 'offline' | 'rename' | 'wallets' | 'contacts' | 'passkey' | 'password' | 'phrase' }
+  | { type: 'manage' | 'credits' | 'protect' | 'remove' | 'offline' | 'wallets' | 'contacts' | 'passkey' | 'password' | 'phrase' | 'slippage' | 'import' }
   | { type: 'leave'; to: 'about' | 'discord' }
   | { type: 'dapps'; link?: string }
 
@@ -279,6 +281,13 @@ export default function App() {
     window.scrollTo(0, 0)
   }
 
+  // No wallet left, so /wallet would be No access. Back to the landing page.
+  function toLanding() {
+    history.replaceState(null, '', '/')
+    setRoute('landing')
+    window.scrollTo(0, 0)
+  }
+
   function start(value: Session) {
     wallet.start(value)
     toHome()
@@ -319,7 +328,7 @@ export default function App() {
 
   return <div className="shell">
     <a href="#main-content" className="skip-link" onClick={(event) => { event.preventDefault(); content.current?.focus() }}>{t('Skip to content')}</a>
-    {route === 'notfound' ? <ErrorPage mainRef={content} kind="missing" /> : mode === 'none' && route !== 'home' && !landing && !pages.includes(route) ? <ErrorPage mainRef={content} kind="denied" /> : route === 'privacy' ? <PrivacyPolicy mainRef={content} back={mode === 'wallet' ? '#settings' : '/'} /> : route === 'credits' ? <CreditsPage mainRef={content} back={mode === 'wallet' ? '#settings' : '/'} /> : route === 'faq' ? <FaqPage mainRef={content} back={mode === 'wallet' ? '#settings' : '/'} /> : landing ? <Landing mode={mode} mainRef={content} openWallet={openWallet} /> : mode === 'locked' ? <LockScreen mainRef={content} protect={preferences.protect} preload={wallet.preload} onSession={start} removed={(message) => { wallet.removed(); notify(message) }} /> : <div className="app">
+    {route === 'notfound' ? <ErrorPage mainRef={content} kind="missing" /> : mode === 'none' && !landing && !pages.includes(route) ? <ErrorPage mainRef={content} kind="denied" /> : route === 'privacy' ? <PrivacyPolicy mainRef={content} back={mode === 'wallet' ? '#settings' : '/'} /> : route === 'credits' ? <CreditsPage mainRef={content} back={mode === 'wallet' ? '#settings' : '/'} /> : route === 'faq' ? <FaqPage mainRef={content} back={mode === 'wallet' ? '#settings' : '/'} /> : landing ? <Landing mode={mode} mainRef={content} openWallet={openWallet} /> : mode === 'locked' ? <LockScreen mainRef={content} protect={preferences.protect} preload={wallet.preload} onSession={start} removed={(message) => { wallet.removed(); toLanding(); notify(message) }} /> : <div className="app">
       <aside className="sidebar">
         <a href="#overview" className="sidebar-brand" aria-label={t('Still home')}><Brand /></a>
         <nav className="side-nav" aria-label={t('Wallet sections')}>
@@ -332,7 +341,7 @@ export default function App() {
 
       <div className="app-body">
       <header className="app-header">
-        <button type="button" className="account" onClick={() => setModal({ type: mode === 'wallet' ? 'wallets' : 'access' })} aria-label={mode === 'wallet' ? t('{name}, switch or edit wallets', { name: wallet.name }) : t('Set up wallet')}>
+        <button type="button" className={modal?.type === 'wallets' ? 'account account--open' : 'account'} onClick={() => setModal({ type: mode === 'wallet' ? 'wallets' : 'access' })} aria-label={mode === 'wallet' ? t('{name}, switch or edit wallets', { name: wallet.name }) : t('Set up wallet')}>
           <span className="avatar">{mode === 'wallet' && wallet.emoji ? <span className="avatar-emoji" aria-hidden="true">{wallet.emoji}</span> : <img src="/icons/brand.svg" alt="" width="20" height="20" />}</span>
           <span className="account-text"><strong>{mode === 'none' ? t('No wallet') : wallet.name || t('Wallet')}{mode === 'wallet' && <ChevronDown size={14} className="account-edit" />}</strong>{mode === 'none' && <small>{t('Set up to start')}</small>}</span>
         </button>
@@ -350,11 +359,11 @@ export default function App() {
 
       <main ref={content} id="main-content" className="app-main" tabIndex={-1}>
         <PullRefresh enabled={(page === 'overview' || page === 'activity') && mode === 'wallet' && !preferences.offline} refreshing={wallet.refreshing} refresh={() => { setPulled(true); void wallet.refresh(page === 'activity' ? 'activity' : 'balances') }} />
-        {page === 'overview' && <Overview key={session?.id} mode={mode} preferences={preferences} balances={wallet.balances} refreshing={wallet.refreshing} pulled={pulled} refresh={() => void wallet.refresh('balances')} prices={wallet.prices} changes={wallet.changes} swap={() => openTransfer('swap')} scramble={() => setModal({ type: 'scramble', network: displayedNetworks[0].id })} setup={() => setModal({ type: 'access' })} openTransfer={(action, network) => openTransfer(action, network?.id)} openAsset={(network) => setModal({ type: 'asset', network: network.id })} tokenBalances={wallet.tokenBalances} openToken={(token) => setModal({ type: 'asset', network: token.network, token: token.id })} layout={wallet.layout} manage={() => setModal({ type: 'manage' })} />}
+        {page === 'overview' && <Overview key={session?.id} mode={mode} preferences={preferences} balances={wallet.balances} refreshing={wallet.refreshing} pulled={pulled} refresh={() => void wallet.refresh('balances')} prices={wallet.prices} changes={wallet.changes} swap={() => openTransfer('swap')} scramble={() => setModal({ type: 'scramble', network: displayedNetworks[0].id })} openTransfer={(action, network) => openTransfer(action, network?.id)} openAsset={(network) => setModal({ type: 'asset', network: network.id })} tokenBalances={wallet.tokenBalances} openToken={(token) => setModal({ type: 'asset', network: token.network, token: token.id })} layout={wallet.layout} manage={() => setModal({ type: 'manage' })} />}
         {page === 'activity' && <ActivityPage mode={mode} items={wallet.items} hidden={preferences.hide} canRefresh={mode === 'wallet' && !preferences.offline} refreshing={wallet.refreshing} refresh={() => void wallet.refresh('activity')} />}
-        {page === 'networks' && <NetworksPage preferences={preferences} edit={(network) => setModal({ type: 'rpc', network: network.id })} />}
+        {page === 'networks' && <NetworksPage preferences={preferences} layout={wallet.layout} edit={(network) => setModal({ type: 'rpc', network: network.id })} />}
         {page === 'charts' && <ChartsPage preferences={preferences} />}
-        {page === 'settings' && <SettingsPage phrase={() => setModal({ type: 'phrase' })} contacts={wallet.contacts.length} openContacts={() => setModal({ type: 'contacts' })} leave={(to) => setModal({ type: 'leave', to })} name={wallet.name} rename={() => setModal({ type: 'rename' })} preferences={preferences} update={wallet.update} mode={mode} lock={lock} protect={() => preferences.protect ? wallet.update({ protect: false }) && notify('Account protection off') : setModal({ type: 'protect' })} setup={() => setModal({ type: 'access' })} remove={() => setModal({ type: 'remove' })} credits={() => setModal({ type: 'credits' })} apps={() => setModal({ type: 'dapps' })} appCount={dapps.sessions.length}
+        {page === 'settings' && <SettingsPage phrase={() => setModal({ type: 'phrase' })} contacts={wallet.contacts.length} openContacts={() => setModal({ type: 'contacts' })} importToken={() => setModal({ type: 'import' })} leave={(to) => setModal({ type: 'leave', to })} slippage={() => setModal({ type: 'slippage' })} preferences={preferences} update={wallet.update} mode={mode} lock={lock} protect={() => preferences.protect ? wallet.update({ protect: false }) && notify('Account protection off') : setModal({ type: 'protect' })} setup={() => setModal({ type: 'access' })} remove={() => setModal({ type: 'remove' })} credits={() => setModal({ type: 'credits' })} apps={() => setModal({ type: 'dapps' })} appCount={dapps.sessions.length}
           passkey={mode === 'wallet' && passkeyDevice() ? passkey : undefined}
           togglePasskey={() => { if (passkey) { disablePasskey(); setPasskey(false); notify(t('Face ID unlock off')) } else setModal({ type: 'passkey' }) }}
           changePassword={() => setModal({ type: 'password' })} />}
@@ -380,7 +389,7 @@ export default function App() {
     return <>
         {modal.type === 'access' && <Access locked={mode === 'locked'} intent={modal.intent} onSession={start} close={close} />}
         {modal.type === 'receive' && session && <Receive addresses={session.addresses} networks={displayedNetworks} initial={transferNetwork} initialAsset={modal.token} close={close} />}
-        {modal.type === 'swap' && session && <Swap from={modal.network ? { network: modal.network, asset: modal.token ?? modal.network } : undefined} close={close} quote={wallet.prepareAnySwap} submit={wallet.submit} finished={() => { closeSheet(); go('activity') }} />}
+        {modal.type === 'swap' && session && <Swap customSlippage={preferences.slippage} from={modal.network ? { network: modal.network, asset: modal.token ?? modal.network } : undefined} close={close} quote={wallet.prepareAnySwap} submit={wallet.submit} finished={() => { closeSheet(); go('activity') }} />}
         {modal.type === 'send' && session && <Send contacts={wallet.contacts} editContact={wallet.editContact} networks={displayedNetworks} initial={transferNetwork} initialAsset={modal.token} close={close} quote={wallet.prepare} submit={wallet.submit} finished={() => { closeSheet(); go('activity') }} />}
         {modal.type === 'asset' && selected && <AssetDetails network={selected} token={modal.token ? tokenById(modal.token) : undefined} amount={modal.token ? tokenAmount(modal.token) : assetAmount(selected)} noWallet={mode !== 'wallet'} close={close} send={(id) => openTransfer('send', id, modal.token)} receive={(id) => openTransfer('receive', id, modal.token)} swap={() => openTransfer('swap', selected.id, modal.token && tokenById(modal.token)?.user ? undefined : modal.token)} scramble={() => setModal({ type: 'scramble', network: selected.id, token: modal.token })} />}
         {modal.type === 'scramble' && <Scramble networks={displayedNetworks} initial={networks[modal.network]} initialAsset={modal.token ?? modal.network} close={close} />}
@@ -390,27 +399,28 @@ export default function App() {
           else delete rpc[selected.id]
           if (wallet.update({ rpc })) { closeSheet(); notify(value ? 'Custom RPC saved' : 'Default RPC restored') }
         }} test={async (network, endpoint, signal) => (await import('./rpc')).testEndpoint(network, endpoint, signal)} />}
-        {modal.type === 'manage' && session && <ManageCoins environment={preferences.environment} layout={wallet.layout} save={wallet.arrange} close={close} imports={{
-          add: wallet.importToken, remove: wallet.removeToken,
-          lookup: async (id, address, signal) => {
-            if (preferences.offline) throw new Error('Turn on network requests to look up tokens.')
-            const network = networks[id]
-            return (await import('./discover')).lookupToken(network, preferences.rpc[id] ?? defaultEndpoint(network), address, signal)
-          },
-        }} />}
+        {modal.type === 'manage' && session && <ManageCoins environment={preferences.environment} layout={wallet.layout} save={wallet.arrange} close={close} imports={{ remove: wallet.removeToken }} />}
+        {modal.type === 'import' && session && <Dialog title={t('Import token')} close={close}>
+          <ImportToken environment={preferences.environment} cancel={closeSheet} add={(token) => { if (wallet.importToken(token)) { closeSheet(); notify(t('{symbol} imported. Add it from Manage tokens.', { symbol: token.symbol })) } }}
+            lookup={async (id, address, signal) => {
+              if (preferences.offline) throw new Error('Turn on network requests to look up tokens.')
+              const network = networks[id]
+              return (await import('./discover')).lookupToken(network, preferences.rpc[id] ?? defaultEndpoint(network), address, signal)
+            }} />
+        </Dialog>}
         {modal.type === 'credits' && <Dialog title={t('Credits')} close={close}>
           <div className="form">
             <p className="dialog-intro"><strong className="credits-title">{t('Still Wallet by ow2')}</strong>{t('Open source under the MIT License.')}</p>
             <ul className="credits-list">{team.map(([name, role]) => <li key={name}><span><strong>{name}</strong><small>{t(role)}</small></span></li>)}</ul>
             <p className="dialog-intro">{t('Supported by')}</p>
             <ul className="credits-list">{supporters.map(([name, role]) => <li key={name}><span><strong>{name}</strong><small>{t(role)}</small></span></li>)}</ul>
-            <p className="dialog-intro">{t('Data from')}</p>
-            <ul className="credits-list">{dataSources.map(([name, kind, use]) => <li key={name}><span><strong>{name}</strong><small>{t(use)}</small></span><em>{t(kind)}</em></li>)}</ul>
             <p className="dialog-intro">{t('Built on these open-source projects:')}</p>
             <ul className="credits-list">
               {credits.map(([name, license, use]) => <li key={name}><span><strong>{name}</strong><small>{use}</small></span><em>{license}</em></li>)}
             </ul>
             <p className="field-note">{t('Thanks to everyone who maintains these projects.')}</p>
+            <p className="dialog-intro">{t('Data from')}</p>
+            <ul className="credits-list">{dataSources.map(([name, kind, use]) => <li key={name}><span><strong>{name}</strong><small>{t(use)}</small></span><em>{t(kind)}</em></li>)}</ul>
           </div>
         </Dialog>}
         {modal.type === 'leave' && <Dialog title={modal.to === 'discord' ? t('Open Discord?') : t('Leave the wallet?')} close={close}>
@@ -433,13 +443,13 @@ export default function App() {
           <p className="dialog-intro">{t('Sending and swapping require a connection to your selected RPC.')}</p>
           <a className="button primary wide" href="#settings" onClick={close}>{t('Open privacy settings')} <ArrowRight size={17} /></a>
         </Dialog>}
-        {modal.type === 'wallets' && session && <WalletSwitcher wallets={wallet.wallets} active={session.id} close={close} select={(account) => { void wallet.switchWallet(account).then(closeSheet) }} add={() => { closeSheet(); toHome(); void wallet.addWallet() }} rename={wallet.rename} setEmoji={wallet.setEmoji} />}
+        {modal.type === 'wallets' && session && <WalletSwitcher wallets={wallet.wallets} active={session.id} close={close} select={(account) => { void wallet.switchWallet(account) }} add={() => { void wallet.addWallet() }} addPhrase={wallet.addPhraseWallet} rename={wallet.rename} setEmoji={wallet.setEmoji} reorder={wallet.orderWallets} remove={wallet.deleteWallet} />}
         {modal.type === 'phrase' && session && <RecoveryPhrase session={session} close={close} />}
         {modal.type === 'contacts' && session && <Contacts contacts={wallet.contacts} edit={wallet.editContact} networks={displayedNetworks} close={close} />}
         {modal.type === 'dapps' && session && <ConnectedApps close={close} offline={preferences.offline} initialLink={modal.link} />}
-        {modal.type === 'rename' && session && <RenameWallet current={wallet.name} close={close} save={(value) => { if (wallet.rename(value)) { closeSheet(); notify('Wallet renamed') } }} />}
+        {modal.type === 'slippage' && <SlippageDialog current={preferences.slippage} close={close} save={(value) => { if (wallet.update({ slippage: value })) { closeSheet(); notify(value ? 'Custom slippage saved' : 'Custom slippage removed') } }} />}
         {modal.type === 'password' && session && <ChangePassword session={session} close={close} done={() => { closeSheet(); notify('Password changed') }} />}
-        {modal.type === 'remove' && session && <RemoveWallet session={session} close={close} removed={() => { wallet.removed(); notify('Wallet deleted') }} />}
+        {modal.type === 'remove' && session && <RemoveWallet session={session} close={close} removed={() => { wallet.removed(); toLanding(); notify('Wallet deleted') }} />}
     </>
   }
 }
@@ -557,9 +567,22 @@ function LockScreen({ mainRef, protect, preload, onSession, removed }: { mainRef
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [unlocked, setUnlocked] = useState(false)
-  const [forgot, setForgot] = useState(false)
+  const [forgot, setForgot] = useState<false | 'menu' | 'phrase' | 'password'>(false)
   // Forgot password slides like sheet steps. Logo stays put.
   const cameBack = useRef(false)
+  const [goingBack, setGoingBack] = useState(false)
+  const [phrase, setPhrase] = useState('')
+  const [next, setNext] = useState('')
+  const [confirmation, setConfirmation] = useState('')
+  const changeForgot = (step: 'menu' | 'phrase' | 'password') => {
+    const order = ['menu', 'phrase', 'password']
+    setGoingBack(order.indexOf(step) < order.indexOf(forgot || 'menu'))
+    setError('')
+    setNext('')
+    setConfirmation('')
+    if (step === 'menu') setPhrase('')
+    setForgot(step)
+  }
   const [tries, setTries] = useState(0)
   const [failures, setFailures] = useState(failedUnlocks)
   const [passkey] = useState(passkeyOn)
@@ -591,14 +614,70 @@ function LockScreen({ mainRef, protect, preload, onSession, removed }: { mainRef
     }
   }
 
+  async function checkPhrase(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    // Old error stays up while checking, so a 2nd wrong phrase only shakes it.
+    setBusy(true)
+    try {
+      const { checkRecoveryPhrase } = await import('./vault')
+      await checkRecoveryPhrase(phrase)
+      changeForgot('password')
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : 'This recovery phrase doesn’t match this wallet.')
+      setTries((value) => value + 1)
+    } finally { setBusy(false) }
+  }
+
+  async function savePassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const fail = (message: string) => { setError(message); setTries((value) => value + 1) }
+    if (!passwordRules.every((rule) => rule.test(next))) return fail('Your new password doesn’t meet all the requirements yet.')
+    if (next !== confirmation) return fail('The passwords do not match.')
+    setBusy(true)
+    try {
+      const { resetPassword } = await import('./vault')
+      const session = await resetPassword(phrase, next)
+      setPhrase('')
+      setNext('')
+      setConfirmation('')
+      setFailures(0)
+      await finish(session)
+    } catch (problem) {
+      fail(problem instanceof Error ? problem.message : 'The password could not be changed. Nothing was changed.')
+      setBusy(false)
+    }
+  }
+
   if (forgot) return <main ref={mainRef} id="main-content" className="lock-screen" tabIndex={-1}>
     <div className="lock-top"><Brand name="Still Wallet" stacked /></div>
-    <div className="lock-card form lock-card--swap">
+    {forgot === 'menu' && <div key="menu" className={goingBack ? 'lock-card form lock-card--swap lock-card--back' : 'lock-card form lock-card--swap'}>
       <h1>{t('Forgot your password?')}</h1>
-      <p className="dialog-intro">{t('Still can’t recover it. You can delete this wallet from this browser and restore it later with your recovery phrase. This can’t be undone.')}</p>
+      <p className="dialog-intro">{t('Enter your recovery phrase to pick a new password. Your wallets, names, contacts and settings stay. Or delete this wallet from this browser, which can’t be undone.')}</p>
       <ErrorSlot error={error} />
-      <div className="two-actions"><button type="button" className="button primary" disabled={busy} onClick={() => { cameBack.current = true; setForgot(false) }} autoFocus>{t('Cancel')}</button><button type="button" className="button secondary" disabled={busy} onClick={() => void reset()}><span key={String(busy)} className="label-swap">{busy ? t('Deleting…') : t('Delete wallet')}</span></button></div>
-    </div>
+      <button type="button" className="button primary wide" disabled={busy} onClick={() => changeForgot('phrase')} autoFocus><KeyRound size={17} />{t('Use recovery phrase')}</button>
+      <div className="two-actions"><button type="button" className="button secondary" disabled={busy} onClick={() => { cameBack.current = true; setPhrase(''); setForgot(false) }}>{t('Cancel')}</button><button type="button" className="button secondary" disabled={busy} onClick={() => void reset()}><span key={String(busy)} className="label-swap">{busy ? t('Deleting…') : t('Delete wallet')}</span></button></div>
+    </div>}
+    {forgot === 'phrase' && <form key="phrase" autoComplete="off" className={goingBack ? 'lock-card form lock-card--swap lock-card--back' : 'lock-card form lock-card--swap'} onSubmit={checkPhrase}>
+      <h1>{t('Enter your recovery phrase')}</h1>
+      <p className="dialog-intro">{t('Type the words of this wallet in order. They stay on this device.')}</p>
+      <label className={error ? 'field field--wrong' : 'field'}><textarea aria-label={t('Recovery phrase')} aria-invalid={!!error} value={phrase} onChange={(event) => setPhrase(event.target.value)} name="recovery-phrase" autoFocus required rows={4} maxLength={320} autoComplete="off" spellCheck={false} autoCapitalize="none" autoCorrect="off" data-1p-ignore data-lpignore="true" data-bwignore="true" data-form-type="other" /></label>
+      <ErrorSlot error={error} attempt={tries} />
+      <button type="submit" className="button primary wide" disabled={busy || !phrase.trim()}><span key={String(busy)} className="label-swap">{busy ? <LoaderCircle size={17} className="spin" /> : null}{busy ? t('Checking…') : t('Continue')}</span></button>
+      <button type="button" className="button text-button wide" disabled={busy} onClick={() => changeForgot('menu')}><ArrowLeft size={16} /> {t('Back')}</button>
+    </form>}
+    {forgot === 'password' && <form key="password" autoComplete="off" className={goingBack ? 'lock-card form lock-card--swap lock-card--back' : 'lock-card form lock-card--swap'} onSubmit={savePassword}>
+      <h1>{t('Pick a new password')}</h1>
+      <label className="field">{t('New pass\u2060word')}<PasswordInput value={next} onChange={(event) => setNext(event.target.value)} autoFocus required maxLength={256} aria-describedby="reset-password-rules" /></label>
+      <ul className="password-rules" id="reset-password-rules" aria-live="polite">
+        {passwordRules.map((rule) => { const met = rule.test(next); return <li key={rule.label} className={met ? 'met' : ''}>{met ? <Check size={14} /> : <X size={14} />}{t(rule.label)}</li> })}
+      </ul>
+      <label className="field">{t('Confirm pass\u2060word')}<PasswordInput value={confirmation} onChange={(event) => setConfirmation(event.target.value)} required maxLength={256} /></label>
+      <ErrorSlot error={error} attempt={tries} />
+      <button type="submit" className="button primary wide" disabled={busy}>
+        <span key={unlocked ? 'open' : String(busy)} className="label-swap">{unlocked ? <LockKeyhole size={17} className="unlocking" /> : busy ? <LoaderCircle size={17} className="spin" /> : <LockKeyhole size={17} />}{unlocked ? t('Unlocked') : busy ? t('Saving…') : t('Save password')}</span>
+      </button>
+      <button type="button" className="button text-button wide" disabled={busy} onClick={() => changeForgot('phrase')}><ArrowLeft size={16} /> {t('Back')}</button>
+    </form>}
   </main>
 
   async function finish(session: Session) {
@@ -656,32 +735,72 @@ function LockScreen({ mainRef, protect, preload, onSession, removed }: { mainRef
         <span key={unlocked ? 'open' : String(busy)} className="label-swap">{unlocked ? <LockKeyhole size={17} className="unlocking" /> : busy ? <LoaderCircle size={17} className="spin" /> : <LockKeyhole size={17} />}{unlocked ? t('Unlocked') : busy ? t('Unlocking…') : t('Unlock')}</span>
       </button>
       {passkey && <button type="button" className="button secondary wide" disabled={busy} onClick={() => void faceId()}><ScanFace size={17} />{t('Use Face ID')}</button>}
-      <button type="button" className="button text-button wide" onClick={() => { setError(''); setForgot(true) }}>{t('Forgot password?')}</button>
+      <button type="button" className="button text-button wide" onClick={() => { setError(''); setGoingBack(false); setForgot('menu') }}>{t('Forgot password?')}</button>
     </form>
   </main>
 }
 
-function RenameWallet({ current, close, save }: { current: string; close: () => void; save: (value: string) => void }) {
-  const [value, setValue] = useState(current)
-  const name = normalizeWalletName(value)
-  return <Dialog title={t('Wallet name')} close={close}>
-    <form className="form" onSubmit={(event) => { event.preventDefault(); if (name) save(name) }}>
-      <label className="field">{t('Na\u2060me')}<input value={value} onChange={(event) => setValue(event.target.value)} maxLength={24} name="wallet-label" autoComplete="off" autoCorrect="off" spellCheck={false} data-1p-ignore data-lpignore="true" autoFocus placeholder={t('Wallet {number}', { number: 1 })} /></label>
-      <p className="field-note">{t('Only shown on this device.')}</p>
-      <button className="button primary wide" type="submit" disabled={!name || name === current}>{t('Save name')}</button>
-    </form>
-  </Dialog>
-}
-
 type WalletEntry = { id: string; account: number; name: string; emoji: string }
 
-function WalletSwitcher({ wallets, active, close, select, add, rename, setEmoji }: {
-  wallets: WalletEntry[]; active: string; close: () => void; select: (account: number) => void; add: () => void
+function WalletSwitcher({ wallets, active, close, select, add, addPhrase, rename, setEmoji, reorder, remove }: {
+  wallets: WalletEntry[]; active: string; close: () => void; select: (account: number) => void; add: () => void; addPhrase: (phrase: string) => Promise<void>
   rename: (value: string, id: string) => boolean; setEmoji: (id: string, emoji: string) => void
+  reorder: (order: number[]) => void; remove: (account: number) => Promise<boolean>
 }) {
   const [editing, setEditing] = useState<string>()
   const [value, setValue] = useState('')
+  const [managing, setManaging] = useState(false)
+  const [removing, setRemoving] = useState<WalletEntry>()
+  const [busy, setBusy] = useState(false)
+  const [back, setBack] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [phrase, setPhrase] = useState('')
+  const [error, setError] = useState('')
+  const [tries, setTries] = useState(0)
   const entry = wallets.find((item) => item.id === editing)
+  // Drop typed words from memory when the sheet goes.
+  useEffect(() => () => setPhrase(''), [])
+
+  if (importing) {
+    const leave = () => { setPhrase(''); setError(''); setBack(true); setImporting(false) }
+    const save = async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault()
+      setBusy(true)
+      try { await addPhrase(phrase); leave() } catch (problem) {
+        setError(problem instanceof Error ? problem.message : 'This browser could not save the new wallet.')
+        setTries((value) => value + 1)
+      } finally { setBusy(false) }
+    }
+    return <Dialog title={t('Add seed phrase')} step="phrase" close={close} busy={busy}>
+      <form className="form" autoComplete="off" onSubmit={(event) => void save(event)}>
+        <p className="dialog-intro">{t('Enter the recovery phrase of the wallet you want to add. It stays encrypted on this device.')}</p>
+        <label className={error ? 'field field--wrong' : 'field'}><textarea aria-label={t('Recovery phrase')} aria-invalid={!!error} value={phrase} onChange={(event) => setPhrase(event.target.value)} name="wallet-phrase" autoFocus required rows={4} maxLength={320} autoComplete="off" spellCheck={false} autoCapitalize="none" autoCorrect="off" data-1p-ignore data-lpignore="true" data-bwignore="true" data-form-type="other" /></label>
+        <ErrorSlot error={error} attempt={tries} />
+        <button type="submit" className="button primary wide" disabled={busy || !phrase.trim()}><span key={String(busy)} className="label-swap">{busy ? <LoaderCircle size={17} className="spin" /> : null}{busy ? t('Checking…') : t('Add wallet')}</span></button>
+        <button type="button" className="button text-button wide" disabled={busy} onClick={leave}><ArrowLeft size={16} /> {t('Back')}</button>
+      </form>
+    </Dialog>
+  }
+
+  if (removing) {
+    const confirm = async () => {
+      setBusy(true)
+      const ok = await remove(removing.account)
+      setBusy(false)
+      if (ok) { setBack(true); setRemoving(undefined) }
+    }
+    return <Dialog title={t('Delete wallet?')} step="delete" close={close} busy={busy}>
+      <div className="form"><span className="empty-icon"><Trash2 size={24} /></span>
+        <p className="dialog-intro dialog-intro--center">{t('This removes {name} from Still Wallet on this device. Its coins stay safe on your recovery phrase.', { name: removing.name })}</p>
+        <div className="two-actions"><button type="button" className="button primary" onClick={() => { setBack(true); setRemoving(undefined) }} disabled={busy} autoFocus>{t('Cancel')}</button><button type="button" className="button secondary" onClick={() => void confirm()} disabled={busy}>{t('Delete')}</button></div>
+      </div>
+    </Dialog>
+  }
+
+  if (managing) return <Dialog title={t('Manage wallets')} step="manage" back={back} close={close}>
+    <ManageWallets wallets={wallets} reorder={reorder} remove={(item) => { setBack(false); setRemoving(item) }} />
+    <button type="button" className="button primary wide" onClick={() => { setBack(true); setManaging(false) }}>{t('Done')}</button>
+  </Dialog>
 
   if (entry) {
     const name = normalizeWalletName(value)
@@ -696,7 +815,7 @@ function WalletSwitcher({ wallets, active, close, select, add, rename, setEmoji 
     </Dialog>
   }
 
-  return <Dialog title={t('Wallets')} close={close}>
+  return <Dialog title={t('Wallets')} step="list" back={back} close={close} lead={<button type="button" className="icon-button" aria-label={t('Manage wallets')} onClick={() => { setBack(false); setManaging(true) }}><SlidersHorizontal size={18} /></button>}>
     <ul className="wallet-list">
       {wallets.map((item) => <li key={item.id} className={item.id === active ? 'active' : ''}>
         <button type="button" className="wallet-pick" onClick={() => select(item.account)} aria-current={item.id === active ? 'true' : undefined}>
@@ -705,6 +824,114 @@ function WalletSwitcher({ wallets, active, close, select, add, rename, setEmoji 
         <button type="button" className="round-button" aria-label={t('Edit {name}', { name: item.name })} onClick={() => { setValue(item.name); setEditing(item.id) }}><Pencil size={16} /></button>
       </li>)}
     </ul>
-    <button type="button" className="button secondary wide" onClick={add}><Plus size={17} /> {t('Add wallet')}</button>
+    <AddWalletMenu create={add} importPhrase={() => { setBack(false); setError(''); setImporting(true) }} />
   </Dialog>
+}
+
+/** "Add wallet" opens a small menu: another wallet on the same phrase, or one with its own phrase. */
+function AddWalletMenu({ create, importPhrase }: { create: () => void; importPhrase: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [place, setPlace] = useState<CSSProperties>()
+  const button = useRef<HTMLButtonElement>(null)
+  const float = useRef<HTMLDivElement>(null)
+  const list = useRef<HTMLUListElement>(null)
+
+  useLayoutEffect(() => {
+    if (!open || !button.current) { setPlace(undefined); return }
+    const rect = button.current.getBoundingClientRect()
+    const height = list.current?.offsetHeight ?? 112
+    const below = window.innerHeight - rect.bottom - 14 >= height
+    setPlace({ position: 'fixed', ...(below ? { top: rect.bottom + 6 } : { bottom: window.innerHeight - rect.top + 6 }), left: rect.left, width: rect.width })
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const outside = (event: PointerEvent) => { const target = event.target as Node; if (!button.current?.contains(target) && !float.current?.contains(target)) setOpen(false) }
+    const dismiss = () => setOpen(false)
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setOpen(false); button.current?.focus({ preventScroll: true }) } }
+    document.addEventListener('pointerdown', outside)
+    window.addEventListener('scroll', dismiss, true)
+    window.addEventListener('resize', dismiss)
+    document.addEventListener('keydown', escape, true)
+    return () => {
+      document.removeEventListener('pointerdown', outside)
+      window.removeEventListener('scroll', dismiss, true)
+      window.removeEventListener('resize', dismiss)
+      document.removeEventListener('keydown', escape, true)
+    }
+  }, [open])
+
+  const items = [
+    { label: t('Create new wallet'), icon: <Plus size={18} />, run: create },
+    { label: t('Add seed phrase'), icon: <KeyRound size={18} />, run: importPhrase },
+  ]
+  const choose = (run: () => void) => { setOpen(false); run() }
+
+  return <>
+    <button ref={button} type="button" className="button secondary wide" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}><Plus size={17} /> {t('Add wallet')}</button>
+    {open && createPortal(<div ref={float} className="picker-float add-wallet-menu" style={place ?? { position: 'fixed', visibility: 'hidden' }}>
+      <ul ref={list} className="picker-list" role="menu" aria-label={t('Add wallet')}>
+        {items.map((item) => <li key={item.label} role="menuitem" tabIndex={0} onClick={() => choose(item.run)}
+          onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); choose(item.run) } }}>
+          {item.icon}<span className="picker-text"><strong>{item.label}</strong></span>
+        </li>)}
+      </ul>
+    </div>, button.current?.closest('dialog') ?? document.body)}
+  </>
+}
+
+/** Drag wallets by the grip to reorder, trash to delete. The last wallet can't be deleted. */
+function ManageWallets({ wallets, reorder, remove }: { wallets: WalletEntry[]; reorder: (order: number[]) => void; remove: (item: WalletEntry) => void }) {
+  const [drag, setDrag] = useState<{ id: string; from: number; startY: number; dy: number; step: number; moved: boolean }>()
+  const list = useRef<HTMLUListElement>(null)
+  const target = drag?.moved ? Math.max(0, Math.min(wallets.length - 1, drag.from + Math.round(drag.dy / drag.step))) : drag?.from ?? -1
+
+  const commit = (from: number, to: number) => {
+    if (from === to || to < 0 || to >= wallets.length) return
+    const next = wallets.map((item) => item.account)
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    reorder(next)
+  }
+  function startDrag(event: ReactPointerEvent<HTMLButtonElement>, id: string) {
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    const rows = [...(list.current?.children ?? [])] as HTMLElement[]
+    const step = rows.length > 1 ? rows[1].getBoundingClientRect().top - rows[0].getBoundingClientRect().top : rows[0]?.offsetHeight ?? 70
+    setDrag({ id, from: wallets.findIndex((item) => item.id === id), startY: event.clientY, dy: 0, step: step || 70, moved: false })
+  }
+  function moveDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (!drag) return
+    event.preventDefault()
+    const dy = event.clientY - drag.startY
+    // A tap never drags, it starts after 8px.
+    if (!drag.moved && Math.abs(dy) < 8) return
+    if (!drag.moved) document.documentElement.classList.add('is-reordering')
+    const min = -drag.from * drag.step
+    const max = (wallets.length - 1 - drag.from) * drag.step
+    setDrag({ ...drag, moved: true, dy: Math.max(min, Math.min(max, dy)) })
+  }
+  function endDrag() {
+    document.documentElement.classList.remove('is-reordering')
+    if (!drag) return
+    setDrag(undefined)
+    if (drag.moved) commit(drag.from, target)
+  }
+  const shift = (index: number) => {
+    if (!drag?.moved || index === drag.from) return 0
+    if (drag.from < target && index > drag.from && index <= target) return -drag.step
+    if (drag.from > target && index >= target && index < drag.from) return drag.step
+    return 0
+  }
+
+  return <ul className="wallet-list wallet-list--manage" ref={list}>
+    {wallets.map((item, index) => <li key={item.id} className={`manage-row${drag?.moved && drag.id === item.id ? ' is-dragging' : ''}${drag?.moved ? ' is-sorting' : ''}`}
+      style={drag?.moved ? { transform: drag.id === item.id ? `translateY(${drag.dy}px) scale(1.02)` : `translateY(${shift(index)}px)` } : undefined}>
+      <button type="button" className="grip" aria-label={t('Drag to reorder {symbol}. Arrow keys move it.', { symbol: item.name })} onKeyDown={(event) => {
+        if (event.key === 'ArrowUp' || event.key === 'ArrowDown') { event.preventDefault(); commit(index, index + (event.key === 'ArrowUp' ? -1 : 1)) }
+      }} onPointerDown={(event) => startDrag(event, item.id)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}><GripVertical size={18} /></button>
+      <span className="wallet-emoji" aria-hidden="true">{item.emoji}</span><strong className="wallet-manage-name">{item.name}</strong>
+      {wallets.length > 1 && <button type="button" className="round-button" aria-label={t('Delete {name}', { name: item.name })} onClick={() => remove(item)}><Trash2 size={16} /></button>}
+    </li>)}
+  </ul>
 }

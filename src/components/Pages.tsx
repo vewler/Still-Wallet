@@ -1,12 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { Activity as ActivityIcon, ArrowUp, BookUser, ChevronLeft, ChevronRight, CircleHelp, Coins, FileKey, ExternalLink, EyeOff, Globe2, Heart, ShieldCheck, Info, KeyRound, Link2, LockKeyhole, MessageCircle, Pencil, ScanFace, ShieldAlert, Trash2, WifiOff, Languages } from 'lucide-react'
+import { Activity as ActivityIcon, ArrowUp, BookUser, ChevronLeft, ChevronRight, CircleHelp, Coins, FileKey, ExternalLink, EyeOff, Globe2, Heart, ShieldCheck, Info, KeyRound, Link2, LockKeyhole, PackagePlus, MessageCircle, Percent, ScanFace, Search, X, ShieldAlert, Trash2, WifiOff, Languages } from 'lucide-react'
 import { activeNetworks, defaultEndpoint, explorerUrl, networks, validateEndpoint, type Network } from '../networks'
-import { currencies, type ActivityItem, type Currency, type Preferences } from '../storage'
+import { currencies, customSlippageRange, validCustomSlippage, type ActivityItem, type Currency, type Preferences } from '../storage'
 import { RefreshIcon } from './Spinner'
 import { Coin } from './Icons'
 import { Picker } from './Picker'
 import { Dialog, ErrorSlot, Notice, Slot } from './Dialog'
 import { tokenById } from '../tokens'
+import { arrangeAssets, popularAssets, type AssetLayout } from '../assets'
 import { deviceLanguage, languageChoice, languages, setLanguage, t, type Language } from '../i18n'
 
 export function Heading({ title, action }: { title: string; action?: ReactNode }) {
@@ -38,10 +39,21 @@ export function ActivityPage({ mode, items, hidden, canRefresh, refreshing, refr
 
 type Health = { state: 'checking' } | { state: 'ok'; ms: number } | { state: 'down' } | { state: 'paused' }
 
-export function NetworksPage({ preferences, edit }: {
-  preferences: Preferences; edit: (network: Network) => void
+export function NetworksPage({ preferences, layout, edit }: {
+  preferences: Preferences; layout: AssetLayout; edit: (network: Network) => void
 }) {
   const list = activeNetworks(preferences.environment)
+  const [query, setQuery] = useState('')
+  const needle = query.trim().toLowerCase()
+  // Without a search: networks of the Home coins, ones with a custom RPC, then popular ones. Search finds the rest.
+  const relevant = [...new Set([
+    ...arrangeAssets(preferences.environment, layout).filter((entry) => entry.shown).map((entry) => entry.asset.network),
+    ...list.filter((network) => preferences.rpc[network.id]).map((network) => network.id),
+    ...popularAssets.map((id) => id.split(':')[0]),
+  ])]
+  const shownNetworks = needle
+    ? list.filter((network) => [network.name, network.symbol, network.label].some((text) => text.toLowerCase().includes(needle)))
+    : relevant.map((id) => list.find((network) => network.id === id)).filter((network): network is Network => !!network)
   const [health, setHealth] = useState<Partial<Record<string, Health>>>({})
   const [round, setRound] = useState(0)
 
@@ -63,9 +75,16 @@ export function NetworksPage({ preferences, edit }: {
   return <div className="page">
     <a className="back-link" href="#settings"><ChevronLeft size={18} />{t('Settings')}</a>
     <Heading title="Networks" action={!preferences.offline && <button className="round-button" aria-label={t('Check all networks again')} disabled={checking} onClick={() => setRound((value) => value + 1)}><RefreshIcon size={18} spinning={checking} /></button>} />
+    <label className="field manage-search">
+      <Search size={18} aria-hidden="true" />
+      <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('Search networks')} aria-label={t('Search networks')} name="network-search" type="text" inputMode="search" enterKeyHint="search"
+        autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} maxLength={40} data-1p-ignore data-lpignore="true" data-bwignore="true" data-form-type="other" onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }} />
+      {query && <button type="button" className="manage-search-clear" aria-label={t('Clear search')} onClick={() => setQuery('')}><X size={16} /></button>}
+    </label>
+    {needle && !shownNetworks.length ? <p className="manage-none">{t('No networks found')}</p> : <>
     <p className="group-label">{t('RPC providers')}</p>
     <div className="group">
-      {list.map((network) => {
+      {shownNetworks.map((network) => {
         const custom = preferences.rpc[network.id]
         const status: Health = preferences.offline ? { state: 'paused' } : health[network.id] ?? { state: 'checking' }
         return <button key={network.id} className="row network-row" onClick={() => edit(network)}>
@@ -82,6 +101,8 @@ export function NetworksPage({ preferences, edit }: {
         </button>
       })}
     </div>
+    </>}
+    {!needle && <p className="manage-more">{t('Search to find more networks')}</p>}
     <div className="network-note"><Info size={16} /><p>{t('The Still gateway and its chain provider can see your network requests. A custom RPC connects straight from your browser to the provider you choose. Tap a network to change it.')}</p></div>
   </div>
 }
@@ -98,13 +119,13 @@ export function RpcDialog({ network, current, offline, close, save, test }: {
   useEffect(() => () => request.current?.abort(), [])
 
   async function testConnection() {
-    setError('')
     setResult('')
     setTesting(true)
     const controller = new AbortController()
     request.current = controller
     try {
       await test(network, endpoint.trim() ? validateEndpoint(endpoint.trim()) : defaultEndpoint(network), controller.signal)
+      if (!controller.signal.aborted) setError('')
       if (!controller.signal.aborted) setResult(t('Connected to {network}.', { network: `${network.name} ${network.label}` }))
     } catch {
       if (!controller.signal.aborted) setError('Connection failed. Check the URL, browser CORS access, and network.')
@@ -122,7 +143,7 @@ export function RpcDialog({ network, current, offline, close, save, test }: {
   return <Dialog title={`${network.name} RPC`} close={close}>
     <form className="form" onSubmit={submit}>
       <p className="dialog-intro">{t('Set a browser-accessible {api} for {network}. Leave it blank to use the Still gateway.', { api: network.chain === 'stacks' ? 'Stacks API (Hiro-compatible)' : network.chain === 'filecoin' ? t('Lotus JSON-RPC endpoint') : network.chain === 'tezos' ? t('Tezos node RPC') : network.chain === 'ton' ? 'toncenter-style API (/api)' : network.chain === 'hypercore' ? 'Hyperliquid API' : network.chain === 'cardano' ? 'Koios API' : network.chain === 'stellar' ? 'Horizon API' : network.chain === 'multiversx' ? 'MultiversX gateway API' : network.chain === 'algorand' ? 'Algorand node (algod) API' : ['cosmos', 'celestia', 'kava', 'axelar', 'injective'].includes(network.chain) ? 'Cosmos REST (LCD) API' : network.chain === 'bitcoin' || network.chain === 'litecoin' || network.chain === 'dogecoin' ? 'Esplora API' : network.chain === 'tron' ? 'Tron HTTP API (java-tron /wallet)' : network.chain === 'monero' ? t('Monero daemon (monerod) RPC') : network.chain === 'sui' ? t('Sui GraphQL endpoint') : network.chain === 'aptos' ? 'Aptos REST API (/v1)' : t('JSON-RPC endpoint'), network: `${network.name} ${network.label}` })}</p>
-      <label className="field">{t('Custom RPC URL')}<input value={endpoint} placeholder={network.rpc} maxLength={2048} inputMode="url" autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} onChange={(event) => { request.current?.abort(); setTesting(false); setEndpoint(event.target.value); setResult(''); setError('') }} /></label>
+      <label className="field">{t('Custom RPC URL')}<input value={endpoint} placeholder={network.rpc} maxLength={2048} inputMode="url" autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} onChange={(event) => { request.current?.abort(); setTesting(false); setEndpoint(event.target.value); setResult('') }} /></label>
       <Slot open={offline}><Notice>{t('Network requests are paused in Settings.')}</Notice></Slot>
       <ErrorSlot error={error} />
       <Slot open={!!result}><p className="success" role="status">{result}</p></Slot>
@@ -135,8 +156,11 @@ function Setting({ icon, title, detail, children }: { icon: ReactNode; title: st
   return <div className="row"><span className="row-icon">{icon}</span><span className="row-text"><strong>{t(title)}</strong>{detail && <small>{t(detail)}</small>}</span>{children}</div>
 }
 
-export function SettingsPage({ contacts, openContacts, phrase, name, rename, preferences, update, mode, lock, remove, setup, protect, credits, leave, passkey, togglePasskey, changePassword, apps, appCount = 0 }: {
-  name: string; rename: () => void;
+export function SettingsPage({ contacts, openContacts, importToken, phrase, slippage, preferences, update, mode, lock, remove, setup, protect, credits, leave, passkey, togglePasskey, changePassword, apps, appCount = 0 }: {
+  /** Opens the custom slippage dialog. */
+  slippage: () => void
+  /** Import a token by its contract address. */
+  importToken: () => void
   /** Connected apps (WalletConnect). */
   apps?: () => void; appCount?: number; preferences: Preferences; update: (value: Partial<Preferences>) => boolean; mode: 'none' | 'locked' | 'wallet'; lock: () => void;
   remove: () => void; setup: () => void; protect: () => void; credits: () => void
@@ -183,15 +207,19 @@ export function SettingsPage({ contacts, openContacts, phrase, name, rename, pre
           options={[0, 1, 5, 15, 30].map((value) => ({ value, label: value ? t('{count} min', { count: value }) : t('Instant') }))} />
       </Setting>
     </div>
+    <p className="group-label">{t('Advanced')}</p>
+    <div className="group">
+      {mode === 'wallet' && <button className="row" onClick={openContacts}><span className="row-icon"><BookUser size={19} /></span><span className="row-text"><strong>{t('Address book')}</strong><small>{contacts === 1 ? t('1 contact') : contacts ? t('{count} contacts', { count: contacts }) : t('Save addresses you send to')}</small></span><ChevronRight size={18} className="row-chevron" /></button>}
+      {mode === 'wallet' && <button className="row" onClick={importToken}><span className="row-icon"><PackagePlus size={19} /></span><span className="row-text"><strong>{t('Import token')}</strong><small>{t('Add a token by its contract address')}</small></span><ChevronRight size={18} className="row-chevron" /></button>}
+      <button className="row" onClick={slippage}><span className="row-icon"><Percent size={19} /></span><span className="row-text"><strong>{t('Custom slippage')}</strong><small>{preferences.slippage ? t('{value} in Max slippage', { value: slippagePercent(preferences.slippage) }) : t('Not set')}</small></span><ChevronRight size={18} className="row-chevron" /></button>
+      {mode === 'wallet' && apps && <button className="row" onClick={apps}><span className="row-icon"><Link2 size={19} /></span><span className="row-text"><strong>{t('Connected apps')}</strong><small>{appCount ? t('{count} connected', { count: appCount }) : 'WalletConnect'}</small></span><ChevronRight size={18} className="row-chevron" /></button>}
+      <a className="row" href="#networks"><span className="row-icon"><Globe2 size={19} /></span><span className="row-text"><strong>{t('Networks')}</strong><small>{t('RPC providers')}</small></span><ChevronRight size={18} className="row-chevron" /></a>
+    </div>
     <p className="group-label">{t('This device')}</p>
     <div className="group">
-      {mode === 'wallet' && <button className="row" onClick={rename}><span className="row-icon"><Pencil size={19} /></span><span className="row-text"><strong>{t('Wallet name')}</strong><small>{name}</small></span><ChevronRight size={18} className="row-chevron" /></button>}
-      {mode === 'wallet' && <button className="row" onClick={openContacts}><span className="row-icon"><BookUser size={19} /></span><span className="row-text"><strong>{t('Address book')}</strong><small>{contacts === 1 ? t('1 contact') : contacts ? t('{count} contacts', { count: contacts }) : t('Save addresses you send to')}</small></span><ChevronRight size={18} className="row-chevron" /></button>}
       <button className="row" onClick={mode === 'wallet' ? lock : setup}><span className="row-icon"><KeyRound size={19} /></span><span className="row-text"><strong>{mode === 'none' ? t('Set up wallet') : mode === 'locked' ? t('Unlock wallet') : t('Lock wallet')}</strong><small>{mode === 'none' ? t('Create or restore a wallet') : t('Vault is password protected')}</small></span><ChevronRight size={18} className="row-chevron" /></button>
       {mode === 'wallet' && <button className="row" onClick={changePassword}><span className="row-icon"><LockKeyhole size={19} /></span><span className="row-text"><strong>{t('Change pass\u2060word')}</strong><small>{t('Enter your current one to set a new one')}</small></span><ChevronRight size={18} className="row-chevron" /></button>}
       {mode === 'wallet' && <button className="row" onClick={phrase}><span className="row-icon"><FileKey size={19} /></span><span className="row-text"><strong>{t('Recovery phrase')}</strong><small>{t('View your secret words, needs your password')}</small></span><ChevronRight size={18} className="row-chevron" /></button>}
-      {mode === 'wallet' && apps && <button className="row" onClick={apps}><span className="row-icon"><Link2 size={19} /></span><span className="row-text"><strong>{t('Connected apps')}</strong><small>{appCount ? t('{count} connected', { count: appCount }) : 'WalletConnect'}</small></span><ChevronRight size={18} className="row-chevron" /></button>}
-      <a className="row" href="#networks"><span className="row-icon"><Globe2 size={19} /></span><span className="row-text"><strong>{t('Networks')}</strong><small>{t('RPC providers')}</small></span><ChevronRight size={18} className="row-chevron" /></a>
       {mode === 'wallet' && <button className="row" onClick={remove}><span className="row-icon danger-text"><Trash2 size={19} /></span><span className="row-text"><strong className="danger-text">{t('Delete wallet')}</strong><small>{t('Erase all wallets and data from this browser')}</small></span><ChevronRight size={18} className="row-chevron" /></button>}
     </div>
     <p className="group-label">{t('About')}</p>
@@ -204,4 +232,31 @@ export function SettingsPage({ contacts, openContacts, phrase, name, rename, pre
     </div>
     <p className="version">{t('Still Wallet by ow2')}</p>
   </div>
+}
+
+export const slippagePercent = (bps: number) => `${bps / 100}%`
+
+/** Set or remove the custom swap slippage. Only shows up in Swap once it's set. */
+export function SlippageDialog({ current, close, save }: { current?: number; close: () => void; save: (value: number | undefined) => void }) {
+  const [value, setValue] = useState(current ? String(current / 100) : '')
+  const [error, setError] = useState('')
+  const [tries, setTries] = useState(0)
+  function fail(message: string) { setError(message); setTries((count) => count + 1) }
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const text = value.trim().replace(',', '.').replace(/%$/, '').trim()
+    if (!/^\d{1,2}(\.\d{1,2})?$|^\.\d{1,2}$/.test(text)) return fail('Enter a number like 0.8, up to 2 decimals.')
+    const bps = Math.round(Number(text) * 100)
+    if (!validCustomSlippage(bps)) return fail('Slippage must be between {min} and {max}.')
+    save(bps)
+  }
+  return <Dialog title={t('Custom slippage')} close={close}>
+    <form className="form" onSubmit={submit} noValidate>
+      <p className="dialog-intro">{t('Adds a Custom option to Max slippage in Swap. Higher slippage fills more often but can cost more.')}</p>
+      <label className="field">{t('Slippage (%)')}<input value={value} onChange={(event) => { setValue(event.target.value); setError('') }} inputMode="decimal" maxLength={6} name="slippage" autoComplete="off" autoCorrect="off" spellCheck={false} data-1p-ignore data-lpignore="true" autoFocus placeholder="0.8" /></label>
+      <ErrorSlot error={error && t(error, { min: slippagePercent(customSlippageRange[0]), max: slippagePercent(customSlippageRange[1]) })} attempt={tries} />
+      {current ? <div className="two-actions"><button type="button" className="button secondary" onClick={() => save(undefined)}>{t('Remove')}</button><button className="button primary" type="submit" disabled={!value.trim()}>{t('Save')}</button></div>
+        : <button className="button primary wide" type="submit" disabled={!value.trim()}>{t('Save')}</button>}
+    </form>
+  </Dialog>
 }

@@ -16,7 +16,14 @@ export type Preferences = {
   autoLock: number
   environment: Environment
   rpc: Partial<Record<NetworkId, string>>
+  /** Custom swap slippage in basis points (100 = 1%), set in Settings. Unset = no Custom option. */
+  slippage?: number
 }
+
+/** Custom slippage limits in basis points: 0.01% to 50%. */
+export const customSlippageRange = [1, 5000] as const
+export const validCustomSlippage = (value: unknown): value is number =>
+  Number.isInteger(value) && (value as number) >= customSlippageRange[0] && (value as number) <= customSlippageRange[1]
 
 const defaults: Preferences = { currency: 'usd', protect: false, hide: false, offline: false, autoLock: 5, environment: 'main', rpc: {} }
 
@@ -66,6 +73,7 @@ export function readPreferences(): Preferences {
     // The 1h option was removed, fall back to the longest one left.
     autoLock: value.autoLock === 60 ? 30 : [0, 1, 5, 15, 30].includes(value.autoLock ?? -1) ? value.autoLock! : defaults.autoLock,
     rpc,
+    ...(validCustomSlippage(value.slippage) ? { slippage: value.slippage } : {}),
   }
 }
 
@@ -212,18 +220,23 @@ export const defaultWalletEmoji = '👁️'
 const allEmojis = new Set(emojiCategories.flatMap((category) => category.emojis))
 export function isWalletEmoji(value: string) { return allEmojis.has(value) }
 
-type Accounts = { vault: string; count: number; active: number }
+type Accounts = { vault: string; count: number; active: number; order: number[] }
 
 function readAccounts(vault: string): Accounts {
   const value = read<Partial<Accounts> | null>(ACCOUNTS_KEY, null)
-  if (!value || value.vault !== vault) return { vault, count: 1, active: 0 }
+  if (!value || value.vault !== vault) return { vault, count: 1, active: 0, order: [0] }
   const count = Math.min(100, Math.max(1, Math.floor(Number(value.count)) || 1))
+  // Wallet order on the Wallets sheet. Deleted wallets are left out. 100-199 are wallets with their own phrase.
+  const saved = Array.isArray(value.order) ? value.order.filter((account): account is number => Number.isInteger(account) && account >= 0 && (account < count || (account >= 100 && account < 200))) : []
+  const order = saved.length ? [...new Set(saved)] : Array.from({ length: count }, (_, account) => account)
   const active = Math.floor(Number(value.active)) || 0
-  return { vault, count, active: active >= 0 && active < count ? active : 0 }
+  return { vault, count, active: order.includes(active) ? active : order[0], order }
 }
 
+const accountId = (vault: string, account: number) => account ? `${vault}:${account}` : vault
+
 export function walletIds(vault: string) {
-  return Array.from({ length: readAccounts(vault).count }, (_, account) => ({ account, id: account ? `${vault}:${account}` : vault }))
+  return readAccounts(vault).order.map((account) => ({ account, id: accountId(vault, account) }))
 }
 
 export function activeAccount(vault: string) {
@@ -232,6 +245,30 @@ export function activeAccount(vault: string) {
 
 export function saveAccounts(vault: string, change: Partial<Omit<Accounts, 'vault'>>) {
   localStorage.setItem(ACCOUNTS_KEY, JSON.stringify({ ...readAccounts(vault), ...change, vault }))
+}
+
+/** Next free account slot (a deleted one first), or undefined at 100. */
+export function nextAccount(vault: string) {
+  const { order } = readAccounts(vault)
+  for (let account = 0; account < 100; account++) if (!order.includes(account)) return account
+}
+
+/** Next free slot for a wallet with its own phrase, or undefined at 100 of them. */
+export function nextOwnPhraseSlot(vault: string) {
+  const { order } = readAccounts(vault)
+  for (let slot = 100; slot < 200; slot++) if (!order.includes(slot)) return slot
+}
+
+/** Drops a wallet's name, emoji, activity, Home layout and tokens from this device. */
+export function forgetWallet(id: string) {
+  clearActivity(id)
+  for (const key of [NAMES_KEY, EMOJI_KEY]) {
+    const map = read<Record<string, unknown>>(key, {})
+    if (map && id in map) { delete map[id]; localStorage.setItem(key, JSON.stringify(map)) }
+  }
+  for (const key of Object.keys(localStorage)) {
+    if (key === TOKENS_PREFIX + id || (key.startsWith(ASSETS_PREFIX) && (key === ASSETS_PREFIX + id || key.endsWith(`.${id}`)))) localStorage.removeItem(key)
+  }
 }
 
 export function walletEmoji(id: string, _account?: number) {
@@ -338,4 +375,26 @@ export async function saveContacts(vault: string, items: Contact[]) {
 /** Clear decrypted contacts on lock. */
 export function forgetContacts() {
   contacts.clear()
+}
+
+/** Older vaults have no phrase check: a key that opens any saved contacts or history proves the phrase. Undefined when nothing encrypted is saved. */
+export async function opensSavedData(vault: string, key: CryptoKey) {
+  const saved: { iv: string; data: string; ad: Uint8Array<ArrayBuffer> }[] = []
+  const contactsBlob = read<{ iv?: string; data?: string } | null>(CONTACTS_PREFIX + vault, null)
+  if (contactsBlob?.iv && contactsBlob.data) saved.push({ iv: contactsBlob.iv, data: contactsBlob.data, ad: contactsData(vault) })
+  for (const name of Object.keys(localStorage)) {
+    if (!name.startsWith(ACTIVITY_PREFIX)) continue
+    const walletId = name.slice(ACTIVITY_PREFIX.length)
+    if (walletId !== vault && !walletId.startsWith(vault + ':')) continue
+    const blob = read<{ iv?: string; data?: string } | null>(name, null)
+    if (blob && !Array.isArray(blob) && blob.iv && blob.data) saved.push({ iv: blob.iv, data: blob.data, ad: activityData(walletId) })
+  }
+  if (!saved.length) return undefined
+  for (const item of saved) {
+    try {
+      await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromBase64(item.iv), additionalData: item.ad }, key, fromBase64(item.data))
+      return true
+    } catch { /* Try the next one. */ }
+  }
+  return false
 }

@@ -59,6 +59,9 @@ export function ConnectedApps({ close, offline, initialLink = '' }: { close: () 
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(!offline)
   const [scanning, setScanning] = useState(false)
+  // After the camera failed once, the next try opens it before leaving the list, so a repeat failure keeps the error still.
+  const cameraFailed = useRef(false)
+  const [camera, setCamera] = useState<MediaStream>()
   const [ending, setEnding] = useState('')
   const started = useRef(false)
 
@@ -70,10 +73,10 @@ export function ConnectedApps({ close, offline, initialLink = '' }: { close: () 
   async function connect(value = link) {
     if (busy) return
     setBusy(true)
-    setError('')
     try {
       const { pair } = wc
       await pair(value)
+      setError('')
       setLink('')
     } catch (problem) {
       setError(message(problem))
@@ -90,6 +93,21 @@ export function ConnectedApps({ close, offline, initialLink = '' }: { close: () 
     void connect(initialLink)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  async function scan() {
+    if (!cameraFailed.current) { setError(''); setScanning(true); return }
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error('unsupported')
+      const media = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
+      cameraFailed.current = false
+      setError('')
+      setCamera(media)
+      setScanning(true)
+    } catch {
+      setError(t('Couldn’t open the camera. Allow camera access, or paste the link instead.'))
+      setTries((count) => count + 1)
+    }
+  }
 
   async function end(topic: string) {
     setEnding(topic)
@@ -110,9 +128,9 @@ export function ConnectedApps({ close, offline, initialLink = '' }: { close: () 
 
   return <Dialog title={scanning ? t('Scan QR code') : t('Connected apps')} step={scanning ? 'scan' : 'list'} close={close} busy={busy}>
     {scanning ? <div className="form">
-      <Scanner found={(value) => { setScanning(false); setLink(value); void connect(value) }} failed={(problem) => { setScanning(false); setError(problem); setTries((count) => count + 1) }} />
+      <Scanner stream={camera} found={(value) => { setScanning(false); setCamera(undefined); setLink(value); void connect(value) }} failed={(problem) => { cameraFailed.current = true; setScanning(false); setCamera(undefined); setError(problem); setTries((count) => count + 1) }} />
       <p className="field-note">{t('Point the camera at the WalletConnect QR code on the app’s site.')}</p>
-      <button className="button text-button wide" onClick={() => setScanning(false)}><ArrowLeft size={16} /> Back</button>
+      <button className="button text-button wide" onClick={() => { setScanning(false); setCamera(undefined) }}><ArrowLeft size={16} /> Back</button>
     </div> : <form className="form" onSubmit={(event: FormEvent) => { event.preventDefault(); void connect() }}>
       <p className="dialog-intro">{t('Use Still with apps and sites that support WalletConnect. Pick WalletConnect in the app, then scan its QR code or paste its link.')}</p>
       <label className="field">{t('WalletConnect link')}
@@ -125,7 +143,7 @@ export function ConnectedApps({ close, offline, initialLink = '' }: { close: () 
       </label>
       <ErrorSlot error={error} attempt={tries} />
       <div className="two-actions">
-        <button type="button" className="button secondary" onClick={() => { setError(''); setScanning(true) }} disabled={busy || loading}><ScanLine size={17} /> Scan</button>
+        <button type="button" className="button secondary" onClick={() => void scan()} disabled={busy || loading}><ScanLine size={17} /> Scan</button>
         <button type="submit" className="button primary" disabled={busy || loading || !link.trim()}>{busy ? <LoaderCircle size={17} className="spin" /> : <Link2 size={17} />} Connect</button>
       </div>
       <p className="group-label dapp-label">{loading ? t('Loading…') : sessions.length ? t('Connected') : t('No apps connected')}</p>
@@ -142,10 +160,10 @@ export function ConnectedApps({ close, offline, initialLink = '' }: { close: () 
 }
 
 /** Camera QR reader. jsQR runs on-device, nothing leaves the phone. */
-function Scanner({ found, failed }: { found: (value: string) => void; failed: (problem: string) => void }) {
+function Scanner({ stream: opened, found, failed }: { stream?: MediaStream; found: (value: string) => void; failed: (problem: string) => void }) {
   const video = useRef<HTMLVideoElement>(null)
   useEffect(() => {
-    let stream: MediaStream | undefined
+    let stream: MediaStream | undefined = opened
     let frame = 0
     let stopped = false
     const canvas = document.createElement('canvas')
@@ -153,7 +171,7 @@ function Scanner({ found, failed }: { found: (value: string) => void; failed: (p
     ;(async () => {
       try {
         if (!navigator.mediaDevices?.getUserMedia) throw new Error('unsupported')
-        const [{ default: jsQR }, media] = await Promise.all([import('jsqr'), navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })])
+        const [{ default: jsQR }, media] = await Promise.all([import('jsqr'), opened ?? navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })])
         stream = media
         if (stopped) { media.getTracks().forEach((track) => track.stop()); return }
         const element = video.current!
@@ -243,8 +261,7 @@ function PromptSheet({ prompt, wallet }: { prompt: Prompt; wallet: DappWallet })
   async function run(task: () => Promise<void>) {
     if (busy) return
     setBusy(true)
-    setError('')
-    try { await task() } catch (problem) { setError(message(problem)); setTries((count) => count + 1) } finally { setBusy(false) }
+    try { await task(); setError('') } catch (problem) { setError(message(problem)); setTries((count) => count + 1) } finally { setBusy(false) }
   }
 
   return <div ref={holder}>{prompt.kind === 'proposal'

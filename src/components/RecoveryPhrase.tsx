@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Check, Copy, Eye, EyeOff, ShieldAlert } from 'lucide-react'
 import { Dialog, ErrorSlot, Notice, PasswordInput } from './Dialog'
 import type { Session } from '../vault'
+import { walletIds } from '../storage'
 import { t } from '../i18n'
 
 const clearAfter = 60_000
@@ -48,7 +49,8 @@ export function RecoveryPhrase({ session, close }: { session: Session; close: ()
     if (verified.vault !== session.vault) throw new Error('The saved wallet changed. Try again.')
     setPassword('')
     setError('')
-    setPhrase(verified.mnemonic)
+    // The words of the wallet that's open, its own phrase if it has one.
+    setPhrase(session.mnemonic)
     setStep('show')
   }
 
@@ -86,7 +88,9 @@ export function RecoveryPhrase({ session, close }: { session: Session; close: ()
       <div className="two-actions"><button className="button primary" type="button" onClick={close} disabled={busy}>{t('Cancel')}</button><button className="button secondary" type="submit" disabled={busy || !password}><span key={String(busy)} className="label-swap">{busy ? t('Checking…') : t('Show phrase')}</span></button></div>
     </form>}
     {step === 'show' && <div className="form">
-      <p className="dialog-intro">{t('Write down these words in order. This phrase restores every wallet in Still Wallet.')}</p>
+      <p className="dialog-intro">{session.slot >= 100 ? t('Write down these words in order. This phrase restores this wallet.')
+        : walletIds(session.vault).some((entry) => entry.account >= 100) ? t('Write down these words in order. This phrase restores every wallet made with it.')
+        : t('Write down these words in order. This phrase restores every wallet in Still Wallet.')}</p>
       <div className={shown ? 'phrase-cover phrase-cover--shown' : 'phrase-cover'}>
         <ol className="phrase-grid" aria-label={t('Recovery phrase')} aria-hidden={!shown}>{words.map((word, index) => <li key={index}><span>{index + 1}</span>{shown ? word : '•••••'}</li>)}</ol>
         {!shown && <button type="button" className="phrase-reveal" onClick={() => setShown(true)}><Eye size={18} />{t('Tap to reveal')}</button>}

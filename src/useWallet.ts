@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { activeNetworks, defaultEndpoint, networks, tokenExplorers, type Network, type NetworkId } from './networks'
 import { contractKey, setUserTokens, tokens, tokensFor, userTokenId, type UserToken } from './tokens'
 import { defaultLayout, type AssetLayout } from './assets'
-import { VAULT_KEY, activitySaved, forgetActivity, loadActivity, readActivity, readAssetLayout, readUserTokens, saveAssetLayout, saveUserTokens, savedVaultId, saveAccounts, saveWalletEmoji, saveWalletName, walletEmoji, walletIds, walletName, readPreferences, saveActivity, savePreferences, forgetContacts, loadContacts, saveContacts, type ActivityItem, type Contact, type Preferences } from './storage'
+import { VAULT_KEY, activitySaved, forgetActivity, loadActivity, readActivity, readAssetLayout, readUserTokens, saveAssetLayout, saveUserTokens, savedVaultId, saveAccounts, forgetWallet, nextAccount, nextOwnPhraseSlot, saveWalletEmoji, saveWalletName, walletEmoji, walletIds, walletName, readPreferences, saveActivity, savePreferences, forgetContacts, loadContacts, saveContacts, type ActivityItem, type Contact, type Preferences } from './storage'
 import type { Session } from './vault'
 import type { Prices, Quote } from './rpc'
 import type { Balance } from './components/Overview'
@@ -162,11 +162,13 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
   }
 
   /** Add tokens to this wallet and show them on Home. */
-  function addTokens(wallet: Session, added: UserToken[]) {
+  /** Found tokens show on Home right away, imported ones wait in Manage tokens > Add tokens. */
+  function addTokens(wallet: Session, added: UserToken[], show = true) {
     const same = (a: UserToken, b: UserToken) => a.network === b.network && contractKey(a.network, a.contract) === contractKey(b.network, b.contract)
     const next = [...readUserTokens(wallet.id).filter((entry) => !added.some((token) => same(entry, token))), ...added]
     saveUserTokens(wallet.id, next)
     applyTokens(next)
+    if (!show) return
     const ids = added.map((token) => userTokenId(token.network, token.contract))
     const current = readAssetLayout(wallet.id, defaultLayout)
     const shown = [...current.shown.filter((id) => !ids.includes(id)), ...ids]
@@ -175,11 +177,11 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
     saveAssetLayout(wallet.id, nextLayout)
   }
 
-  /** Paste-an-address import from Manage. */
+  /** Paste-an-address import from Settings. */
   function importToken(token: UserToken) {
     const wallet = active.current
     if (!wallet) return false
-    try { addTokens(wallet, [token]) } catch { notify('This browser could not save the token.'); return false }
+    try { addTokens(wallet, [token], false) } catch { notify('This browser could not save the token.'); return false }
     void loadPrices(currentPreferences.current.currency)
     void refresh('balances', true)
     return true
@@ -237,7 +239,7 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
 
   async function switchWallet(account: number) {
     const wallet = active.current
-    if (!wallet || account === wallet.account) return
+    if (!wallet || account === wallet.slot) return
     const next = await (await import('./vault')).accountSession(wallet, account)
     if (active.current !== wallet) return
     try { saveAccounts(wallet.vault, { active: account }) } catch { /* Still switch for this session. */ }
@@ -247,11 +249,56 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
   async function addWallet() {
     const wallet = active.current
     if (!wallet) return
-    const account = wallets.length
-    if (account >= 100) { notify('You can add up to 100 wallets.'); return }
-    try { saveAccounts(wallet.vault, { count: account + 1 }) } catch { notify('This browser could not save the new wallet.'); return }
-    await switchWallet(account)
+    const account = nextAccount(wallet.vault)
+    if (account === undefined) { notify('You can add up to 100 wallets.'); return }
+    const order = [...walletIds(wallet.vault).map((entry) => entry.account), account]
+    try { saveAccounts(wallet.vault, { count: Math.max(...order.filter((entry) => entry < 100)) + 1, order }) } catch { notify('This browser could not save the new wallet.'); return }
+    loadWallets(wallet.vault)
     notify('Wallet added')
+  }
+
+  /** Add a wallet with its own recovery phrase. Throws a message for the form. */
+  async function addPhraseWallet(phrase: string) {
+    const wallet = active.current
+    if (!wallet) throw new Error('The wallet is unavailable. Unlock and try again.')
+    const slot = nextOwnPhraseSlot(wallet.vault)
+    if (slot === undefined) throw new Error('You can add up to 100 wallets.')
+    await (await import('./vault')).addOwnPhrase(wallet, phrase, slot)
+    if (active.current !== wallet) return
+    try { saveAccounts(wallet.vault, { order: [...walletIds(wallet.vault).map((entry) => entry.account), slot] }) } catch { throw new Error('This browser could not save the new wallet.') }
+    loadWallets(wallet.vault)
+    notify('Wallet added')
+  }
+
+  /** New wallet order on the Wallets sheet. */
+  function orderWallets(order: number[]) {
+    const wallet = active.current
+    if (!wallet) return
+    try { saveAccounts(wallet.vault, { order }) } catch { notify('This browser could not save the order.') }
+    loadWallets(wallet.vault)
+  }
+
+  /** Removes a wallet from this device. Deleting the open one switches to the top wallet. */
+  async function deleteWallet(account: number) {
+    const wallet = active.current
+    if (!wallet) return false
+    const list = walletIds(wallet.vault)
+    const entry = list.find((item) => item.account === account)
+    const rest = list.filter((item) => item.account !== account)
+    if (!entry || !rest.length) return false
+    if (account === wallet.slot) {
+      const next = await (await import('./vault')).accountSession(wallet, rest[0].account)
+      if (active.current !== wallet) return false
+      try { saveAccounts(wallet.vault, { order: rest.map((item) => item.account), active: rest[0].account }) } catch { notify('This browser could not delete the wallet.'); return false }
+      start(next)
+    } else {
+      try { saveAccounts(wallet.vault, { order: rest.map((item) => item.account) }) } catch { notify('This browser could not delete the wallet.'); return false }
+    }
+    try { forgetWallet(entry.id) } catch { /* Leftovers are harmless, the wallet is gone from the list. */ }
+    if (account >= 100) await (await import('./vault')).removeOwnPhrase(wallet, account).catch(() => {})
+    loadWallets(wallet.vault)
+    notify('Wallet deleted')
+    return true
   }
 
   function rename(value: string, id = active.current?.id) {
@@ -500,6 +547,6 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
     preferences, balances, tokenBalances, layout, arrange, userTokens, importToken, removeToken, items, refreshing, session, name, wallets, prices, changes,
     emoji: wallets.find((entry) => entry.id === session?.id)?.emoji,
     mode: session ? 'wallet' as const : saved ? 'locked' as const : 'none' as const,
-    lock, start, preload, update, refresh, prepare, prepareSwap, prepareAnySwap, prepareDapp, withEndpoint, submit, removed, rename, setEmoji, switchWallet, addWallet,
+    lock, start, preload, update, refresh, prepare, prepareSwap, prepareAnySwap, prepareDapp, withEndpoint, submit, removed, rename, setEmoji, switchWallet, addWallet, addPhraseWallet, orderWallets, deleteWallet,
   }
 }

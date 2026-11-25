@@ -41,8 +41,10 @@ const themeColor = () => document.querySelector<HTMLMetaElement>('meta[name="the
 const pageTheme = themeColor()?.content ?? '#09090b'
 
 /** Modal sheet. When the title/step changes the content slides and the sheet resizes to fit. */
-export function Dialog({ title, close, busy = false, step, back = false, children }: {
-  title: string; close: () => void; busy?: boolean; step?: string; back?: boolean; children: ReactNode
+export function Dialog({ title, close, busy = false, step, back = false, lead, children }: {
+  title: string; close: () => void; busy?: boolean; step?: string; back?: boolean
+  /** Optional header button on the left, opposite the X. */
+  lead?: ReactNode; children: ReactNode
 }) {
   const ref = useRef<HTMLDialogElement>(null)
   const measure = useRef<HTMLDivElement>(null)
@@ -129,6 +131,7 @@ export function Dialog({ title, close, busy = false, step, back = false, childre
       const time = Math.round(Math.max(160, Math.min(320, left / Math.max(state.v, 1.2))))
       dialog.style.transition = `transform ${time}ms cubic-bezier(.3, .7, .4, 1)`
       dialog.style.transform = 'translateY(100%)'
+      dialog.classList.add('dialog--leaving')
       setDim(0, `${time}ms`)
       window.setTimeout(() => { setDim(null); close() }, time)
     } else {
@@ -168,7 +171,7 @@ export function Dialog({ title, close, busy = false, step, back = false, childre
     <div className="dialog-content">
       <div className="sheet-grab" onPointerDown={dragStart} onPointerMove={dragMove} onPointerUp={dragEnd} onPointerCancel={dragEnd}>
       <div className="sheet-handle" />
-      <div className="dialog-head"><h2 id={titleId} key={title} className="dialog-title">{title}</h2><button type="button" className="icon-button" aria-label={t('Close dialog')} onClick={dismiss} disabled={busy}><X size={19} /></button></div>
+      <div className="dialog-head">{lead && <span className="dialog-lead">{lead}</span>}<h2 id={titleId} key={title} className="dialog-title">{title}</h2><button type="button" className="icon-button" aria-label={t('Close dialog')} onClick={dismiss} disabled={busy}><X size={19} /></button></div>
       </div>
       <div ref={size} className="dialog-size">
         <div ref={measure} className="dialog-measure">
@@ -179,8 +182,8 @@ export function Dialog({ title, close, busy = false, step, back = false, childre
   </dialog>
 }
 
-export function Notice({ children, error = false }: { children: ReactNode; error?: boolean }) {
-  return <p className={error ? 'notice notice--error' : 'notice'} role={error ? 'alert' : undefined}>{error ? <span>{children}</span> : children}</p>
+export function Notice({ children, error = false, shake }: { children: ReactNode; error?: boolean; shake?: number }) {
+  return <p className={error ? 'notice notice--error' : 'notice'} role={error ? 'alert' : undefined}>{error ? <span key={shake}>{children}</span> : children}</p>
 }
 
 /** Row that animates its height in and out. */
@@ -224,7 +227,8 @@ export function Glide({ children }: { children: ReactNode }) {
 export function ErrorSlot({ error, attempt = 0 }: { error: string; attempt?: number }) {
   const last = useRef(error)
   if (error) last.current = error
-  return <Slot open={!!error} className="error-slot">{last.current && <Notice key={attempt} error={!!error}>{t(last.current)}</Notice>}</Slot>
+  // A repeat error keeps the same box and only re-shakes the text, so it never flashes.
+  return <Slot open={!!error} className="error-slot">{last.current && <Notice error={!!error} shake={attempt}>{t(last.current)}</Notice>}</Slot>
 }
 
 /** Password field with fading dots. The real input keeps focus, caret and autofill; its glyphs are hidden and bullets drawn on top. */

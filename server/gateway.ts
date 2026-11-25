@@ -29,6 +29,7 @@ const aptosPost = new Set(['/transactions', '/transactions/simulate'])
 // Public providers rate-limit shared Cloudflare IPs, so busy chains get a second provider.
 const backups: Partial<Record<string, string[]>> = {
   solana: ['https://api.mainnet-beta.solana.com'],
+  ethereum: ['https://eth.drpc.org'],
 }
 const hex = /^[a-f\d]+$/i
 const bitcoinGet = /^\/(?:block-height\/0|blocks\/tip\/height|fee-estimates|v1\/fees\/recommended|address\/[A-Za-z\d]{25,90}(?:\/utxo)?|tx\/[a-f\d]{64}\/(?:hex|status))$/

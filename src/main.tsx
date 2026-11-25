@@ -45,7 +45,7 @@ document.addEventListener('focusin', (event) => {
 
 // Action tiles and the manage button replay their icon animation on every tap.
 document.addEventListener('pointerdown', (event) => {
-  const icon = (event.target as Element).closest?.('.action:not(:disabled), .round-button')?.querySelector('.action svg:not(.lucide-refresh-cw, .lucide-box), svg.lucide-sliders-horizontal')
+  const icon = (event.target as Element).closest?.('.action:not(:disabled), .round-button')?.querySelector('.action svg:not(.lucide-refresh-cw), svg.lucide-sliders-horizontal')
   if (!icon) return
   icon.classList.remove('tap')
   void (icon as SVGElement).getBoundingClientRect() // restart the animation

@@ -123,7 +123,7 @@ export function Contacts({ contacts, edit, networks, close }: { contacts: Contac
 
   if (editing) return <Dialog title={current ? t('Edit contact') : t('New contact')} step="edit" close={close} busy={busy}>
     <form className="form" onSubmit={save}>
-      <ContactFields value={value} change={(next) => { setValue(next); setError('') }} networks={networks} />
+      <ContactFields value={value} change={setValue} networks={networks} />
       <ErrorSlot error={error} />
       <button className="button primary wide" type="submit" disabled={busy}>{current ? t('Save contact') : t('Add contact')}</button>
       {current && <button type="button" className="button text-button wide danger-text" onClick={() => setConfirm(true)} disabled={busy}><Trash2 size={16} /> {t('Delete contact')}</button>}
@@ -142,7 +142,6 @@ export function Contacts({ contacts, edit, networks, close }: { contacts: Contac
         </button>
       </li>)}
     </ul> : <div className="form contact-empty"><span className="empty-icon"><BookUser size={24} /></span>
-      <p className="dialog-intro dialog-intro--center">{t('No contacts yet. Save addresses you send to often and pick them in Send.')}</p>
     </div>}
     <button type="button" className="button secondary wide" onClick={() => open()}><Plus size={17} /> {t('Add contact')}</button>
   </Dialog>
@@ -168,7 +167,7 @@ export function SaveContact({ network, address, contacts, edit }: { network: Net
 
   return <>
     <Slot open={open}><div className="form contact-save">
-      <ContactFields value={value} change={(next) => { setValue(next); setError('') }} networks={[network]} lockAddress />
+      <ContactFields value={value} change={setValue} networks={[network]} lockAddress />
       <ErrorSlot error={error} />
       <button type="button" className="button primary wide" onClick={() => void save()} disabled={busy}>{t('Save contact')}</button>
     </div></Slot>

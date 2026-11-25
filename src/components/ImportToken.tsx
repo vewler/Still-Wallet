@@ -28,7 +28,6 @@ export function ImportToken({ environment, lookup, add, cancel }: {
     event.preventDefault()
     if (busy) return
     const text = address.trim()
-    setError('')
     if (!text) { setError('Paste the token’s contract address.'); setAttempt((value) => value + 1); return }
     const listed = knownToken(network, text)
     if (listed) { setError(t('{symbol} is already in your list. Add it from Manage tokens.', { symbol: listed.symbol })); setAttempt((value) => value + 1); return }
@@ -65,11 +64,11 @@ export function ImportToken({ environment, lookup, add, cancel }: {
   return <form className="form" onSubmit={(event) => void search(event)} autoComplete="off">
     <p className="dialog-intro">{t('Add a token Still doesn’t list. Paste its contract address (mint address on Solana).')}</p>
     <div className="field"><span>{t('Network')}</span>
-      <Picker label={t('Network')} value={network} onChange={(id) => { setNetwork(id); setError('') }}
+      <Picker label={t('Network')} value={network} onChange={(id) => setNetwork(id)}
         options={list.map((entry) => ({ value: entry.id, label: entry.name, sub: entry.label, icon: <Coin chain={entry.chain} /> }))} />
     </div>
     <label className="field">{selected.chain === 'solana' ? t('Mint address') : t('Contract address')}
-      <input name="token-address" value={address} onChange={(event) => { setAddress(event.target.value); setError('') }} placeholder={selected.chain === 'solana' ? t('Mint address') : selected.chain === 'tron' ? 'T…' : '0x…'}
+      <input name="token-address" value={address} onChange={(event) => setAddress(event.target.value)} placeholder={selected.chain === 'solana' ? t('Mint address') : selected.chain === 'tron' ? 'T…' : '0x…'}
         autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} maxLength={64} data-1p-ignore data-lpignore="true" />
     </label>
     <ErrorSlot error={error} attempt={attempt} />

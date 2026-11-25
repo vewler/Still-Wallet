@@ -1,5 +1,5 @@
 import { useRef, type CSSProperties } from 'react'
-import { ArrowUp, Box, ChevronRight, LockKeyhole, QrCode, ShieldCheck, Shuffle, SlidersHorizontal, Sparkles } from 'lucide-react'
+import { ArrowUp, Box, QrCode, ShieldCheck, Shuffle, SlidersHorizontal } from 'lucide-react'
 import { activeNetworks, formatAmount, type Network, type NetworkId } from '../networks'
 import type { Prices } from '../rpc'
 import { type Preferences } from '../storage'
@@ -23,7 +23,6 @@ type Props = {
   prices: Prices
   /** 24-hour change in percent per coin id. */
   changes: Prices
-  setup: () => void
   swap: () => void
   scramble: () => void
   openTransfer: (action: 'send' | 'receive', network?: Network) => void
@@ -34,7 +33,7 @@ type Props = {
   manage: () => void
 }
 
-export function Overview({ mode, preferences, balances, refreshing, pulled, refresh, prices, changes, setup, swap, scramble, openTransfer, openAsset, tokenBalances, openToken, layout, manage }: Props) {
+export function Overview({ mode, preferences, balances, refreshing, pulled, refresh, prices, changes, swap, scramble, openTransfer, openAsset, tokenBalances, openToken, layout, manage }: Props) {
   const hidden = preferences.hide
   // Only animate amounts after the eye toggle, not on first load.
   const startHidden = useRef(hidden)
@@ -43,6 +42,9 @@ export function Overview({ mode, preferences, balances, refreshing, pulled, refr
   const networks = activeNetworks(preferences.environment)
   const canRefresh = !refreshing && mode === 'wallet' && !preferences.offline
   const shown = arrangeAssets(preferences.environment, layout).filter((entry) => entry.shown).map((entry) => entry.asset)
+  // Side panel: only the networks of the coins shown on Home, in the same order.
+  const sideNetworks = networks.filter((network) => shown.some((asset) => asset.network === network.id))
+    .sort((a, b) => shown.findIndex((asset) => asset.network === a.id) - shown.findIndex((asset) => asset.network === b.id))
   const balanceOf = (asset: Asset) => asset.token ? tokenBalances[asset.id] : balances[asset.network]
   const fiat = (asset: Asset) => {
     const amount = balanceOf(asset)?.amount ?? 0n
@@ -77,15 +79,10 @@ export function Overview({ mode, preferences, balances, refreshing, pulled, refr
     </div>
 
     <aside className="home-side">
-    {mode !== 'wallet' && <button className="promo" onClick={setup}>
-      <span className="promo-icon">{mode === 'locked' ? <LockKeyhole size={21} /> : <Sparkles size={21} />}</span>
-      <span><strong>{mode === 'locked' ? t('Unlock your wallet') : t('No wallet yet')}</strong><small>{mode === 'locked' ? t('Your vault is encrypted on this device.') : t('Create or import a wallet to get started.')}</small></span>
-      <ChevronRight size={18} />
-    </button>}
       {/* Desktop only: networks + privacy note */}
       <div className="side-card">
         <div className="side-card-head"><h2>{t('Networks')}</h2>{mode === 'wallet' ? <button type="button" className="text-link" onClick={manage}>{t('Manage')}</button> : <a href="#networks" className="text-link">{t('Manage')}</a>}</div>
-        {networks.map((network) => <a key={network.id} href="#networks" className="side-network">
+        {sideNetworks.map((network) => <a key={network.id} href="#networks" className="side-network">
           <Coin chain={network.chain} /><span><strong>{network.name}</strong><small>{network.label}</small></span>
           <i className="dot dot--main" />
         </a>)}

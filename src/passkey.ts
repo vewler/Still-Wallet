@@ -87,7 +87,7 @@ export async function enablePasskey(session: Session, walletName: string): Promi
   const save = async (secret: BufferSource) => {
     const key = await wrapKey(secret, session.vault)
     const iv = crypto.getRandomValues(new Uint8Array(12))
-    const plaintext = encoder.encode(session.mnemonic)
+    const plaintext = encoder.encode(session.root)
     try {
       const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: associatedData(session.vault) }, key, plaintext)
       const value: StoredPasskey = { version: 1, vault: session.vault, credential, salt: toBase64(salt), iv: toBase64(iv), data: toBase64(new Uint8Array(data)) }
