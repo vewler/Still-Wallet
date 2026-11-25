@@ -4,6 +4,7 @@ import { knownToken, tokenColor, type UserToken } from '../tokens'
 import { ErrorSlot, Notice } from './Dialog'
 import { Coin, TokenIcon } from './Icons'
 import { Picker } from './Picker'
+import { priorityNetworks } from '../assets'
 import { t } from '../i18n'
 
 /** Paste a contract or mint address, check what it is, then add it. */
@@ -65,6 +66,7 @@ export function ImportToken({ environment, lookup, add, cancel }: {
     <p className="dialog-intro">{t('Add a token Still doesn’t list. Paste its contract address (mint address on Solana).')}</p>
     <div className="field"><span>{t('Network')}</span>
       <Picker label={t('Network')} value={network} onChange={(id) => setNetwork(id)}
+        search={t('Search networks')} empty={t('No networks found')} priority={priorityNetworks} more={t('Search to find more networks')}
         options={list.map((entry) => ({ value: entry.id, label: entry.name, sub: entry.label, icon: <Coin chain={entry.chain} /> }))} />
     </div>
     <label className="field">{selected.chain === 'solana' ? t('Mint address') : t('Contract address')}

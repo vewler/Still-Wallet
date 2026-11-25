@@ -6,6 +6,7 @@ import { Coin } from './Icons'
 import { Dialog, ErrorSlot, Slot } from './Dialog'
 import { EmojiPicker } from './EmojiPicker'
 import { Picker } from './Picker'
+import { priorityNetworks } from '../assets'
 import { t } from '../i18n'
 
 export type EditContact = (contact: Contact, remove?: boolean) => Promise<boolean>
@@ -48,6 +49,7 @@ export function ContactFields({ value, change, networks, lockAddress = false }: 
     {lockAddress ? <div className="field"><span>{t('Network')}</span><div className="scramble-target">{network.name}</div></div>
       : <div className="field"><span>{t('Network')}</span>
         <Picker label={t('Network')} value={value.network} onChange={(id: NetworkId) => change({ ...value, network: id })}
+          search={t('Search networks')} empty={t('No networks found')} priority={priorityNetworks} more={t('Search to find more networks')}
           options={networks.map((item) => ({ value: item.id, label: item.name, sub: `${item.label} · ${item.symbol}`, icon: <Coin chain={item.chain} /> }))} />
       </div>}
     <label className="field">{t('Address')}<input className="mono" value={value.address} readOnly={lockAddress} onChange={(event) => change({ ...value, address: event.target.value.trim() })} name="contact-address" placeholder={network.chainId !== undefined ? '0x…' : t('{network} address', { network: network.name })} autoCapitalize="none" autoComplete="off" autoCorrect="off" spellCheck={false} maxLength={100} required /></label>

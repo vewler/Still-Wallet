@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { SlidersHorizontal } from 'lucide-react'
 import { Dialog } from './Dialog'
 import { allAssets, arrangeList, type Asset, type AssetLayout } from '../assets'
@@ -158,6 +158,8 @@ export function ChartsPage({ preferences }: { preferences: Preferences }) {
 }
 
 const money = (value: number, currency: string) => new Intl.NumberFormat('en-US', { style: 'currency', currency: currency.toUpperCase(), maximumFractionDigits: value < 1 ? 6 : 2 }).format(value)
+// Short price for tight cards so the coin name gets the room: $59.7K, $1.68K, $42.1
+const shortMoney = (value: number, currency: string) => new Intl.NumberFormat('en-US', { style: 'currency', currency: currency.toUpperCase(), notation: 'compact', maximumSignificantDigits: 3 }).format(value)
 const changeOf = (history: History) => (history.last - history.first) / history.first * 100
 
 /** History for one coin/range: cache first, refresh if stale. */
@@ -189,14 +191,44 @@ function ChartCard({ asset, days, currency, ready }: { asset: Asset; days: Days;
   const [open, setOpen] = useState(false)
   const change = history && history !== 'error' ? changeOf(history) : undefined
   const up = (change ?? 0) >= 0
+  const price = history && history !== 'error' ? money(history.last, currency) : ''
+  // Name beats price: shorten the price ($59.7K), then shrink it, before the name gets cut.
+  const header = useRef<HTMLElement>(null)
+  const [fit, setFit] = useState<0 | 1 | 2 | 3>(0)
+  useLayoutEffect(() => {
+    const head = header.current
+    if (!head || !price) return
+    const measure = () => {
+      const name = head.querySelector<HTMLElement>('.chart-name')
+      const side = head.querySelector<HTMLElement>('.chart-price')
+      const [full, compact, change, tiny, tinyChange] = Array.from(head.querySelectorAll<HTMLElement>('.chart-price-measure > *'))
+      if (!name || !side || !tinyChange) return
+      // Layout widths only (cards animate with transforms).
+      const room = name.offsetWidth + side.offsetWidth - 2 // offsetWidth rounds, keep a little slack
+      const nameWidth = Math.max(...Array.from(name.children, (child) => child.scrollWidth))
+      const fullWidth = Math.max(full.offsetWidth, change.offsetWidth)
+      const shortWidth = Math.max(compact.offsetWidth, change.offsetWidth)
+      const tinyWidth = Math.max(tiny.offsetWidth, tinyChange.offsetWidth)
+      setFit(nameWidth + fullWidth <= room ? 0 : nameWidth + shortWidth <= room ? 1 : nameWidth + tinyWidth <= room ? 2 : 3)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(head)
+    document.fonts?.ready.then(measure)
+    return () => observer.disconnect()
+  }, [price, asset.name, asset.symbol])
   return <article className="chart-card">
     <button type="button" className="chart-hit" aria-label={t('Open {name} chart', { name: asset.name })} onClick={() => setOpen(true)} />
-    <header>
+    <header ref={header}>
       {asset.token ? <TokenIcon token={asset.token} /> : <Coin chain={asset.chain} />}
       <span className="chart-name"><strong>{asset.name}</strong><small>{asset.symbol}</small></span>
-      {history && history !== 'error' && <span className="chart-price">
-        <strong>{money(history.last, currency)}</strong>
-        <small className={up ? 'up' : 'danger-text'}>{up ? '+' : ''}{change!.toFixed(2)}%</small>
+      {history && history !== 'error' && <span className={fit > 1 ? 'chart-price chart-price--small' : 'chart-price'}>
+        <strong>{fit ? shortMoney(history.last, currency) : price}</strong>
+        <small className={up ? 'up' : 'danger-text'}>{up ? '+' : ''}{change!.toFixed(fit > 1 ? 1 : 2)}%</small>
+        <span className="chart-price-measure" aria-hidden="true">
+          <strong>{price}</strong><strong>{shortMoney(history.last, currency)}</strong><small>{up ? '+' : ''}{change!.toFixed(2)}%</small>
+          <strong className="tiny">{shortMoney(history.last, currency)}</strong><small className="tiny">{up ? '+' : ''}{change!.toFixed(1)}%</small>
+        </span>
       </span>}
     </header>
     {history === 'error' ? <p className="chart-empty">{t('Chart unavailable right now.')} <button type="button" className="text-link" onClick={retry}>{t('Try again')}</button></p>

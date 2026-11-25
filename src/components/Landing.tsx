@@ -123,7 +123,8 @@ export function Landing({ mode, mainRef, openWallet }: LandingProps) {
     let current: Element | null = null
     const check = () => {
       frame = 0
-      const target = x < 0 ? null : document.elementFromPoint(x, y)?.closest('.hover-card') ?? null
+      const point = x < 0 ? null : document.elementFromPoint(x, y)
+      const target = point && !point.closest('.github-badge') ? point.closest('.hover-card') : null
       if (target === current) return
       current?.classList.remove('is-hover')
       target?.classList.add('is-hover')

@@ -5,10 +5,12 @@ import { Check, ChevronDown } from 'lucide-react'
 export type PickerOption<T extends string | number> = { value: T; label: string; sub?: string; icon?: ReactNode }
 
 /** Custom <select>. The list floats over the content. */
-/** `search`: placeholder for a filter box at the top of the list, for long lists. */
-export function Picker<T extends string | number>({ value, options, onChange, label, compact = false, search, empty = 'Nothing found' }: {
-  value: T; options: PickerOption<T>[]; onChange: (value: T) => void; label: string; compact?: boolean; search?: string; empty?: string
+/** `search`: placeholder for a filter box at the top of the list, for long lists (more than 8 options).
+ *  `priority`: with a search, only these (plus the selected one) show until you type, then `more` sits under them. */
+export function Picker<T extends string | number>({ value, options, onChange, label, compact = false, search: searchLabel, empty = 'Nothing found', priority, more }: {
+  value: T; options: PickerOption<T>[]; onChange: (value: T) => void; label: string; compact?: boolean; search?: string; empty?: string; priority?: T[]; more?: string
 }) {
+  const search = options.length > 8 ? searchLabel : undefined
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const field = useRef<HTMLInputElement>(null)
@@ -18,7 +20,15 @@ export function Picker<T extends string | number>({ value, options, onChange, la
   // Exact name matches first, then names that start with a term, then the rest, each in list order.
   const rank = (option: PickerOption<T>) => { const name = option.label.toLowerCase(); return terms.includes(name) ? 0 : terms.some((term) => name.startsWith(term)) ? 1 : 2 }
   const shownOptions = terms.length ? options.filter((option) => terms.every((term) => `${option.label} ${option.sub ?? ''}`.toLowerCase().includes(term)))
-    .map((option, index) => ({ option, index, rank: rank(option) })).sort((left, right) => left.rank - right.rank || left.index - right.index).map(({ option }) => option) : options
+    .map((option, index) => ({ option, index, rank: rank(option) })).sort((left, right) => left.rank - right.rank || left.index - right.index).map(({ option }) => option) : shortList()
+  // No search yet: the selected one (if it isn't a priority coin) on top, then the priority coins in their order.
+  function shortList() {
+    if (!search || !priority) return options
+    const short = [...options.filter((option) => option.value === value && !priority.includes(option.value)),
+      ...priority.flatMap((id) => options.filter((option) => option.value === id))]
+    return short.length < options.length ? short : options
+  }
+  const hidden = !terms.length && shownOptions.length < options.length
   const [active, setActive] = useState(0)
   // Only arrow keys highlight, touch has no hover.
   const [keyed, setKeyed] = useState(false)
@@ -131,7 +141,7 @@ export function Picker<T extends string | number>({ value, options, onChange, la
 
   function show() {
     setQuery('')
-    setActive(Math.max(0, options.findIndex((option) => option.value === value)))
+    setActive(Math.max(0, shortList().findIndex((option) => option.value === value)))
     setKeyed(false)
     setOpen(true)
   }
@@ -177,6 +187,7 @@ export function Picker<T extends string | number>({ value, options, onChange, la
         {option.value === value && <Check size={16} className="picker-check" />}
       </li>)}
       {search && !shownOptions.length && <li className="picker-empty" role="presentation">{empty}</li>}
+      {hidden && more && <li className="picker-more" role="presentation">{more}</li>}
     </ul>
   }
 }

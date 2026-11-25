@@ -655,7 +655,7 @@ function LockScreen({ mainRef, protect, preload, onSession, removed }: { mainRef
     <div className="lock-top"><Brand name="Still Wallet" stacked /></div>
     {forgot === 'menu' && <div key="menu" className={goingBack ? 'lock-card form lock-card--swap lock-card--back' : 'lock-card form lock-card--swap'}>
       <h1>{t('Forgot your password?')}</h1>
-      <p className="dialog-intro">{t('Enter your recovery phrase to pick a new password. Your wallets, names, contacts and settings stay. Or delete this wallet from this browser, which can’t be undone.')}</p>
+      <p className="dialog-intro lock-intro">{t('Your recovery phrase sets a new password, nothing is lost. Deleting is final.')}</p>
       <ErrorSlot error={error} />
       <button type="button" className="button primary wide" disabled={busy} onClick={() => changeForgot('phrase')} autoFocus><KeyRound size={17} />{t('Use recovery phrase')}</button>
       <div className="two-actions"><button type="button" className="button secondary" disabled={busy} onClick={() => { cameBack.current = true; setPhrase(''); setForgot(false) }}>{t('Cancel')}</button><button type="button" className="button secondary" disabled={busy} onClick={() => void reset()}><span key={String(busy)} className="label-swap">{busy ? t('Deleting…') : t('Delete wallet')}</span></button></div>

@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
 import { GripVertical, Minus, Plus, Search, Trash2, X } from 'lucide-react'
-import { arrangeAssets, arrangeList, defaultLayout, popularAssets, type Asset, type AssetLayout } from '../assets'
+import { allAssets, arrangeAssets, arrangeList, defaultLayout, priorityAssets, type Asset, type AssetLayout } from '../assets'
 import type { Environment } from '../networks'
 import { networks } from '../networks'
 import { Coin, TokenIcon } from './Icons'
@@ -12,8 +12,9 @@ function AssetIcon({ asset }: { asset: Asset }) {
 }
 
 /** FLIP: moved rows glide to their new spot, new rows fade/scale in. */
-function useFlip(root: RefObject<HTMLElement | null>, paused = false) {
+function useFlip(root: RefObject<HTMLElement | null>, paused = false, search = '') {
   const last = useRef(new Map<string, { top: number; height: number }>())
+  const searched = useRef(search)
   // Rows that switch lists remount, that's how a removal is told apart from closing a gap.
   const seen = useRef(new WeakSet<Element>())
   useLayoutEffect(() => {
@@ -39,6 +40,18 @@ function useFlip(root: RefObject<HTMLElement | null>, paused = false) {
       return () => cancelAnimationFrame(frame)
     }
     const next = measure()
+    // Search swaps the whole list: no sliding, rows that stay just sit, new ones fade in.
+    if (search !== searched.current) {
+      searched.current = search
+      for (const animation of element.getAnimations({ subtree: true })) if (!(animation instanceof CSSTransition) && !(animation instanceof CSSAnimation)) animation.cancel()
+      for (const ghost of element.querySelectorAll('[data-ghost]')) ghost.remove()
+      for (const row of element.querySelectorAll<HTMLElement>('[data-flip]')) {
+        if (!last.current.has(row.dataset.flip!) && row.dataset.scale === undefined) row.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 160, easing: 'ease-out' })
+      }
+      last.current = next
+      for (const row of element.querySelectorAll('[data-flip]')) seen.current.add(row)
+      return
+    }
     for (const row of element.querySelectorAll<HTMLElement>('[data-flip]')) {
       const rect = next.get(row.dataset.flip!)!
       const before = last.current.get(row.dataset.flip!)
@@ -56,6 +69,7 @@ function useFlip(root: RefObject<HTMLElement | null>, paused = false) {
         if (before && Math.abs(before.top - rect.top) > 0.5) {
           const ghost = row.cloneNode(true) as HTMLElement
           ghost.removeAttribute('data-flip')
+          ghost.dataset.ghost = ''
           Object.assign(ghost.style, { position: 'absolute', margin: '0', left: `${row.offsetLeft}px`, top: `${row.offsetTop + before.top - rect.top}px`, width: `${row.offsetWidth}px`, pointerEvents: 'none' })
           row.parentElement!.appendChild(ghost)
           ghost.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 80, easing: 'ease-out', fill: 'forwards' }).onfinish = () => ghost.remove()
@@ -94,9 +108,11 @@ export function ManageCoins({ environment, layout, save, close, assets, title = 
   environment: Environment; layout: AssetLayout; save: (layout: AssetLayout) => void; close: () => void
   /** Custom list (Charts uses one per coin). Defaults to every Home coin. */
   assets?: Asset[]; title?: string; defaults?: AssetLayout; place?: string
-  /** Home only: search, remove imported tokens. */
+  /** Home only: remove imported tokens. */
   imports?: TokenImports
 }) {
+  // Home and Charts both get search + a short popular list.
+  const searchable = !!imports || !!assets
   const [query, setQuery] = useState('')
   // Keep the sheet's height while searching so it doesn't jump as results shrink.
   // Only hold what's on screen, anything taller just scrolled into empty space.
@@ -121,15 +137,19 @@ export function ManageCoins({ environment, layout, save, close, assets, title = 
   const updateDrag = (next: Drag | undefined) => { dragging.current = next; setDrag(next) }
   const list = useRef<HTMLDivElement>(null)
   const body = useRef<HTMLDivElement>(null)
-  useFlip(body, !!drag)
-  // Search by ticker, name or network. Home only.
-  const needle = imports ? query.trim().toLowerCase() : ''
+  // Search by ticker, name or network.
+  const needle = searchable ? query.trim().toLowerCase() : ''
+  useFlip(body, !!drag, needle)
   const matches = (asset: Asset) => !needle || [asset.symbol, asset.name, networks[asset.network]?.name].some((text) => text?.toLowerCase().includes(needle))
   const foundShown = order.filter(matches)
-  // Home without a search: only popular coins and the user's own tokens. Search finds the rest.
-  const popular = (asset: Asset) => !!asset.token?.user || popularAssets.includes(asset.id)
-  const rank = (asset: Asset) => { const index = popularAssets.indexOf(asset.id); return index === -1 ? popularAssets.length : index }
-  const shortList = !!imports && !needle
+  // Without a search: only priority coins and the user's own tokens. Search finds the rest.
+  // Charts keeps one entry per coin, so match priority ones by price id there.
+  const everything = assets ? allAssets(environment) : []
+  const popularPrices = priorityAssets.map((id) => everything.find((asset) => asset.id === id)?.priceId)
+  const popularIndex = (asset: Asset) => assets ? popularPrices.indexOf(asset.priceId) : priorityAssets.indexOf(asset.id)
+  const popular = (asset: Asset) => !!asset.token?.user || popularIndex(asset) !== -1
+  const rank = (asset: Asset) => { const index = popularIndex(asset); return index === -1 ? priorityAssets.length : index }
+  const shortList = searchable && !needle
   // Imported tokens always come first.
   const imported = (asset: Asset) => asset.token?.user === 'custom'
   const importedFirst = (a: Asset, b: Asset) => Number(imported(b)) - Number(imported(a))
@@ -194,7 +214,7 @@ export function ManageCoins({ environment, layout, save, close, assets, title = 
   }
 
   return <Dialog title={t(title)} step="list" close={close}>
-    {imports && <label className="field manage-search">
+    {searchable && <label className="field manage-search">
       <Search size={18} aria-hidden="true" />
       <input value={query} onChange={(event) => search(event.target.value)} onFocus={endDrag} placeholder={t('Search tokens')} aria-label={t('Search tokens')} name="token-search" type="text" inputMode="search" enterKeyHint="search"
         autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} maxLength={40} data-1p-ignore data-lpignore="true" data-bwignore="true" data-form-type="other" onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }} />

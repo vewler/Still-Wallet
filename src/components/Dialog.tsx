@@ -41,8 +41,8 @@ const themeColor = () => document.querySelector<HTMLMetaElement>('meta[name="the
 const pageTheme = themeColor()?.content ?? '#09090b'
 
 /** Modal sheet. When the title/step changes the content slides and the sheet resizes to fit. */
-export function Dialog({ title, close, busy = false, step, back = false, lead, children }: {
-  title: string; close: () => void; busy?: boolean; step?: string; back?: boolean
+export function Dialog({ title, close, busy = false, step, back = false, lead, className, children }: {
+  title: string; close: () => void; busy?: boolean; step?: string; back?: boolean; className?: string
   /** Optional header button on the left, opposite the X. */
   lead?: ReactNode; children: ReactNode
 }) {
@@ -161,7 +161,7 @@ export function Dialog({ title, close, busy = false, step, back = false, lead, c
     return () => observer.disconnect()
   }, [])
 
-  return <dialog ref={ref} className="dialog" tabIndex={-1} aria-labelledby={titleId}
+  return <dialog ref={ref} className={className ? `dialog ${className}` : 'dialog'} tabIndex={-1} aria-labelledby={titleId}
     onCancel={(event) => { event.preventDefault(); dismiss() }}
     onClick={(event) => {
       if (event.target !== ref.current || busy) return

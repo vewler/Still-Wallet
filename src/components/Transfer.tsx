@@ -9,18 +9,24 @@ import { Coin, TokenIcon } from './Icons'
 import { tokenById, tokens, unswappable, type Token } from '../tokens'
 import { afterTap, Dialog, ErrorSlot, Glide, Notice, Slot } from './Dialog'
 import { Picker } from './Picker'
+import { priorityAssets, priorityNetworks } from '../assets'
+
+/** Priority tokens as symbols (USDC), for the token list of one network. Its own coin always counts. */
+const prioritySymbols = new Set(priorityAssets.flatMap((id) => tokenById(id)?.symbol ?? []))
 import { t } from '../i18n'
 
 function NetworkField({ networks, selected, change }: { networks: Network[]; selected: Network; change: (network: Network) => void }) {
   return <div className="field"><span>{t('Network')}</span>
     <Picker label={t('Network')} value={selected.id} onChange={(id) => change(networks.find((network) => network.id === id)!)}
+      search={t('Search networks')} empty={t('No networks found')} priority={priorityNetworks} more={t('Search to find more networks')}
       options={networks.map((network) => ({ value: network.id, label: network.name, sub: `${network.label} · ${network.symbol}`, icon: <Coin chain={network.chain} /> }))} />
   </div>
 }
 
 function AssetField({ network, label, value, change }: { network: Network; label: string; value: string; change: (asset: string) => void }) {
   return <div className="field"><span>{t(label)}</span>
-    <Picker label={t(label)} value={value} onChange={change} options={[
+    <Picker label={t(label)} value={value} onChange={change} search={t('Search tokens')} empty={t('No tokens found')} more={t('Search to find more tokens')}
+      priority={[network.id, ...tokens.filter((token) => token.network === network.id && prioritySymbols.has(token.symbol)).map((token) => token.id)]} options={[
       { value: network.id, label: network.symbol, sub: network.name, icon: <Coin chain={network.chain} /> },
       ...tokens.filter((token) => token.network === network.id).map((token) => ({ value: token.id, label: token.symbol, sub: token.name, icon: <TokenIcon token={token} /> })),
     ]} />
@@ -101,7 +107,7 @@ const swapAssets = crossNetworks.flatMap((id) => [id as string, ...tokens.filter
 
 function SwapAssetField({ label, value, change }: { label: string; value: string; change: (asset: string) => void }) {
   return <div className="field"><span>{t(label)}</span>
-    <Picker label={t(label)} value={value} onChange={change} search={t('Search tokens')} empty={t('No tokens found')} options={swapAssets.map((id) => {
+    <Picker label={t(label)} value={value} onChange={change} search={t('Search tokens')} empty={t('No tokens found')} priority={priorityAssets} more={t('Search to find more tokens')} options={swapAssets.map((id) => {
       const token = tokenById(id)
       const network = mainnets[(token?.network ?? id) as NetworkId]
       return { value: id, label: token?.symbol ?? network.symbol, sub: token ? `${token.name} · ${network.name}` : network.name, icon: token ? <TokenIcon token={token} /> : <Coin chain={network.chain} /> }
@@ -164,6 +170,8 @@ export function Scramble({ networks, initial, initialAsset, close }: { networks:
   const [asset, setAsset] = useState(initialAsset ?? network.id)
   const [amount, setAmount] = useState('')
   const [level, setLevel] = useState('balanced')
+  const [target, setTarget] = useState('wallet')
+  const [address, setAddress] = useState('')
   const symbol = tokenById(asset)?.symbol ?? network.symbol
   return <Dialog title={t('Scramble')} close={close}>
     <form className="form" onSubmit={(event) => event.preventDefault()}>
@@ -178,7 +186,13 @@ export function Scramble({ networks, initial, initialAsset, close }: { networks:
           { value: 'max', label: t('Maximum'), sub: t('More hops spread over hours') },
         ]} />
       </div>
-      <div className="field"><span>{t('Goes to')}</span><div className="scramble-target">{t('A new wallet, created on this device')}</div></div>
+      <div className="field"><span>{t('Goes to')}</span>
+        <Picker label={t('Goes to')} value={target} onChange={setTarget} options={[
+          { value: 'wallet', label: t('New wallet'), sub: t('Created on this device') },
+          { value: 'address', label: t('Address'), sub: t('Type or paste it below') },
+        ]} />
+      </div>
+      <Slot open={target === 'address'}><label className="field">{t('Recipient address')}<input className="mono" name="recipient" placeholder={network.addressHint ?? t('{network} address', { network: network.name })} value={address} onChange={(event) => setAddress(event.target.value)} autoCapitalize="none" autoComplete="off" autoCorrect="off" spellCheck={false} maxLength={100} /></label></Slot>
       <button className="button unavailable wide" type="submit" disabled>{t('Unavailable')}</button>
     </form>
   </Dialog>
@@ -274,7 +288,7 @@ function TransactionDialog({ title, close, prepare, submit, finished, contactNam
 export function AssetDetails({ network, token, amount, noWallet, close, send, receive, swap, scramble }: {
   network: Network; token?: Token; amount?: string; noWallet: boolean; close: () => void; send: (id: NetworkId) => void; receive: (id: NetworkId) => void; swap: () => void; scramble: () => void
 }) {
-  return <Dialog title={token ? t('{symbol} on {network}', { symbol: token.symbol, network: network.name }) : network.name} close={close}>
+  return <Dialog title={token ? t('{symbol} on {network}', { symbol: token.symbol, network: network.name }) : network.name} close={close} className="dialog--asset">
     <div className="asset-detail">
       {token ? <TokenIcon token={token} /> : <Coin chain={network.chain} />}
       <strong>{amount ?? `0 ${token?.symbol ?? network.symbol}`}</strong>
