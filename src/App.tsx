@@ -12,7 +12,7 @@ import { Contacts } from './components/Contacts'
 import type { Session } from './vault'
 import { disablePasskey, enablePasskey, passkeyDevice, passkeyOn, unlockWithPasskey, type PasskeySetup } from './passkey'
 import { Overview } from './components/Overview'
-import { ActivityPage, NetworksPage, RpcDialog, SettingsPage, SlippageDialog } from './components/Pages'
+import { ActivityPage, NetworksPage, RpcDialog, SettingsPage, SlippageDialog, staggerSettings } from './components/Pages'
 import { ChartsPage, prefetchCharts } from './components/Charts'
 import { Landing, discord } from './components/Landing'
 import { credits, dataSources, supporters, team } from './credits'
@@ -208,6 +208,7 @@ export default function App() {
       removeEventListener('popstate', onRoute)
       removeEventListener('routechange', onRoute)
       document.removeEventListener('click', onClick)
+      navigator.serviceWorker?.removeEventListener('controllerchange', onTakeover)
       clearTimeout(toastTimer.current)
     }
   }, [close, notify])
@@ -224,6 +225,8 @@ export default function App() {
     const saved = scrolls.current.get(scrollKey(route))
     if ((from === 'privacy' || from === 'credits' || from === 'faq') && saved !== undefined) {
       window.scrollTo(0, saved)
+      const settings = document.querySelector('.settings-page')
+      if (settings) staggerSettings(settings, true)
       content.current?.focus({ preventScroll: true })
       restored.current = true
     }
@@ -387,7 +390,7 @@ export default function App() {
     const selected = 'network' in modal && modal.network ? networks[modal.network] : undefined
     const transferNetwork = selected && displayedNetworks.some((network) => network.id === selected.id) ? selected : undefined
     return <>
-        {modal.type === 'access' && <Access locked={mode === 'locked'} intent={modal.intent} onSession={start} close={close} />}
+        {modal.type === 'access' && <Access locked={mode === 'locked'} protect={preferences.protect} intent={modal.intent} onSession={start} close={close} erased={(message) => { wallet.removed(); closeSheet(); notify(message) }} />}
         {modal.type === 'receive' && session && <Receive addresses={session.addresses} networks={displayedNetworks} initial={transferNetwork} initialAsset={modal.token} close={close} />}
         {modal.type === 'swap' && session && <Swap customSlippage={preferences.slippage} from={modal.network ? { network: modal.network, asset: modal.token ?? modal.network } : undefined} close={close} quote={wallet.prepareAnySwap} submit={wallet.submit} finished={() => { closeSheet(); go('activity') }} />}
         {modal.type === 'send' && session && <Send contacts={wallet.contacts} editContact={wallet.editContact} networks={displayedNetworks} initial={transferNetwork} initialAsset={modal.token} close={close} quote={wallet.prepare} submit={wallet.submit} finished={() => { closeSheet(); go('activity') }} />}
@@ -443,7 +446,7 @@ export default function App() {
           <p className="dialog-intro">{t('Sending and swapping require a connection to your selected RPC.')}</p>
           <a className="button primary wide" href="#settings" onClick={close}>{t('Open privacy settings')} <ArrowRight size={17} /></a>
         </Dialog>}
-        {modal.type === 'wallets' && session && <WalletSwitcher wallets={wallet.wallets} active={session.id} close={close} select={(account) => { void wallet.switchWallet(account) }} add={() => { void wallet.addWallet() }} addPhrase={wallet.addPhraseWallet} rename={wallet.rename} setEmoji={wallet.setEmoji} reorder={wallet.orderWallets} remove={wallet.deleteWallet} />}
+        {modal.type === 'wallets' && session && <WalletSwitcher wallets={wallet.wallets} active={wallet.activeWallet ?? session.id} warm={wallet.warmWallets} close={close} select={(account) => { void wallet.switchWallet(account) }} add={() => { void wallet.addWallet() }} addPhrase={wallet.addPhraseWallet} rename={wallet.rename} setEmoji={wallet.setEmoji} reorder={wallet.orderWallets} remove={wallet.deleteWallet} />}
         {modal.type === 'phrase' && session && <RecoveryPhrase session={session} close={close} />}
         {modal.type === 'contacts' && session && <Contacts contacts={wallet.contacts} edit={wallet.editContact} networks={displayedNetworks} close={close} />}
         {modal.type === 'dapps' && session && <ConnectedApps close={close} offline={preferences.offline} initialLink={modal.link} />}
@@ -742,8 +745,8 @@ function LockScreen({ mainRef, protect, preload, onSession, removed }: { mainRef
 
 type WalletEntry = { id: string; account: number; name: string; emoji: string }
 
-function WalletSwitcher({ wallets, active, close, select, add, addPhrase, rename, setEmoji, reorder, remove }: {
-  wallets: WalletEntry[]; active: string; close: () => void; select: (account: number) => void; add: () => void; addPhrase: (phrase: string) => Promise<void>
+function WalletSwitcher({ wallets, active, warm, close, select, add, addPhrase, rename, setEmoji, reorder, remove }: {
+  wallets: WalletEntry[]; active: string; warm: () => Promise<void>; close: () => void; select: (account: number) => void; add: () => void; addPhrase: (phrase: string) => Promise<void>
   rename: (value: string, id: string) => boolean; setEmoji: (id: string, emoji: string) => void
   reorder: (order: number[]) => void; remove: (account: number) => Promise<boolean>
 }) {
@@ -760,6 +763,8 @@ function WalletSwitcher({ wallets, active, close, select, add, addPhrase, rename
   const entry = wallets.find((item) => item.id === editing)
   // Drop typed words from memory when the sheet goes.
   useEffect(() => () => setPhrase(''), [])
+  // Get the other wallets ready while the list is open, so a tap switches at once.
+  useEffect(() => { void warm() }, [])
 
   if (importing) {
     const leave = () => { setPhrase(''); setError(''); setBack(true); setImporting(false) }

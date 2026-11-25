@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react'
-import { ArrowLeft, ArrowRight, Check, ChevronRight, Download, LoaderCircle, LockKeyhole, Wallet, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, ChevronRight, Download, LoaderCircle, LockKeyhole, ShieldAlert, Wallet, X } from 'lucide-react'
 import type { Session } from '../vault'
 import { passwordRules } from '../passwords'
+import { failedUnlocks, forgetVault, maxUnlockAttempts, saveFailedUnlocks, savedVaultId } from '../storage'
 
 // Crypto code is lazy loaded (prewarmed after first paint) to keep it out of the main bundle.
 const vault = () => import('../vault')
@@ -11,8 +12,10 @@ import { t } from '../i18n'
 type AccessStep = 'choose' | 'create' | 'verify' | 'import' | 'password' | 'unlock' | 'done'
 const order: AccessStep[] = ['choose', 'create', 'import', 'verify', 'password', 'unlock', 'done']
 
-export function Access({ locked, intent, close, onSession }: {
-  locked: boolean; intent?: 'send' | 'receive' | 'swap'; close: () => void; onSession: (session: Session) => void
+export function Access({ locked, protect, intent, close, onSession, erased }: {
+  locked: boolean; protect: boolean; intent?: 'send' | 'receive' | 'swap'; close: () => void; onSession: (session: Session) => void
+  /** Account protection erased the wallet after too many wrong passwords. */
+  erased: (message: string) => void
 }) {
   const [step, setStep] = useState<AccessStep>(locked ? 'unlock' : 'choose')
   const [phrase, setPhrase] = useState('')
@@ -22,6 +25,7 @@ export function Access({ locked, intent, close, onSession }: {
   const [confirmation, setConfirmation] = useState('')
   const [error, setError] = useState('')
   const [tries, setTries] = useState(0)
+  const [failures, setFailures] = useState(failedUnlocks)
   const [busy, setBusy] = useState(false)
   const [unlocked, setUnlocked] = useState(false)
   const [origin, setOrigin] = useState<'verify' | 'import'>('verify')
@@ -35,10 +39,11 @@ export function Access({ locked, intent, close, onSession }: {
     setStep(next)
   }
 
+  // Errors stay until replaced, so a repeat shakes instead of reopening.
+  const fail = (message: string) => { setError(message); setTries((value) => value + 1) }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    // Errors stay until replaced, so a repeat shakes instead of reopening.
-    const fail = (message: string) => { setError(message); setTries((value) => value + 1) }
     if (step === 'import') {
       if (!(await vault()).validPhrase(phrase)) { fail('Enter a valid English BIP-39 recovery phrase.'); return }
       setOrigin('import')
@@ -65,15 +70,36 @@ export function Access({ locked, intent, close, onSession }: {
       const { unlockVault, createVault } = await vault()
       const session = step === 'unlock' ? await unlockVault(password) : await createVault(phrase, password)
       // Same as the lock screen: open the padlock, then the wallet.
-      if (step === 'unlock') { setUnlocked(true); setTimeout(() => onSession(session), 650); return }
+      if (step === 'unlock') {
+        try { saveFailedUnlocks(0) } catch { /* Counter reset is best effort. */ }
+        setUnlocked(true)
+        setTimeout(() => onSession(session), 650)
+        return
+      }
       // Short success beat before the wallet opens.
       setBack(false)
       setStep('done')
       setTimeout(() => onSession(session), 900)
     } catch (problem) {
       fail(problem instanceof Error ? problem.message : 'The local wallet could not be opened.')
+      // Wrong passwords count here like on the lock screen, with the same stored counter.
+      if (step !== 'unlock' || !protect || !(problem instanceof Error && problem.message === 'Incorrect password')) return
+      const count = failedUnlocks() + 1
+      try { saveFailedUnlocks(count) } catch { /* Still enforce within this session. */ }
+      setFailures(count)
+      setPassword('')
+      if (count >= maxUnlockAttempts) await erase()
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function erase() {
+    try {
+      await (await vault()).removeVault(savedVaultId() ?? '')
+      try { forgetVault() } finally { erased('Too many wrong passwords. Wallet erased') }
+    } catch (problem) {
+      fail(problem instanceof Error ? problem.message : 'The local wallet could not be removed.')
     }
   }
 
@@ -111,6 +137,9 @@ export function Access({ locked, intent, close, onSession }: {
       {(step === 'password' || step === 'unlock') && <>
         <p className="dialog-intro">{step === 'unlock' ? t('Enter your password to open the encrypted vault on this device.') : t('Your password encrypts this wallet in your browser.')}</p>
         <label className={step === 'unlock' && error ? 'field field--wrong' : 'field'}>{t('Pass⁠word')}<PasswordInput value={password} onChange={(event) => setPassword(event.target.value)} autoFocus required maxLength={256} aria-describedby={step === 'password' ? 'password-rules' : undefined} /></label>
+        {step === 'unlock' && protect && failures > 0 && (maxUnlockAttempts - failures === 1
+          ? <p className="last-try" role="alert"><ShieldAlert size={18} /><span><strong>{t('Last try')}</strong>{t('One more wrong password erases this wallet.')}</span></p>
+          : <p className="attempts-left">{t('{count} tries left before this wallet is erased', { count: maxUnlockAttempts - failures })}</p>)}
         {step === 'password' && <ul className="password-rules" id="password-rules" aria-live="polite">
           {passwordRules.map((rule) => { const met = rule.test(password); return <li key={rule.label} className={met ? 'met' : ''}>{met ? <Check size={14} /> : <X size={14} />}{t(rule.label)}</li> })}
         </ul>}

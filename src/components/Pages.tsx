@@ -156,6 +156,13 @@ function Setting({ icon, title, detail, children }: { icon: ReactNode; title: st
   return <div className="row"><span className="row-icon">{icon}</span><span className="row-text"><strong>{t(title)}</strong>{detail && <small>{t(detail)}</small>}</span>{children}</div>
 }
 
+/** Rows ripple in top to bottom. With fromScreen the ripple starts at the first row on screen, so coming back low on the page doesn't wait on the rows above. */
+export function staggerSettings(root: ParentNode, fromScreen = false) {
+  const rows = [...root.querySelectorAll<HTMLElement>('.group-label, .group > *')]
+  const first = fromScreen ? Math.max(0, rows.findIndex((row) => row.getBoundingClientRect().bottom > 0)) : 0
+  rows.forEach((row, index) => { row.style.animationDelay = `${Math.max(0, index - first) * 17.5}ms` })
+}
+
 export function SettingsPage({ contacts, openContacts, importToken, phrase, slippage, preferences, update, mode, lock, remove, setup, protect, credits, leave, passkey, togglePasskey, changePassword, apps, appCount = 0 }: {
   /** Opens the custom slippage dialog. */
   slippage: () => void
@@ -175,9 +182,7 @@ export function SettingsPage({ contacts, openContacts, importToken, phrase, slip
 }) {
   // One stagger for the whole page.
   const page = useRef<HTMLDivElement>(null)
-  useLayoutEffect(() => {
-    page.current!.querySelectorAll<HTMLElement>('.group-label, .group > *').forEach((element, index) => { element.style.animationDelay = `${index * 17.5}ms` })
-  }, [])
+  useLayoutEffect(() => staggerSettings(page.current!), [])
   return <div ref={page} className="page settings-page">
     <Heading title="Settings" />
     <p className="group-label">{t('Privacy')}</p>

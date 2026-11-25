@@ -4,6 +4,7 @@ import { contractKey, setUserTokens, tokens, tokensFor, userTokenId, type UserTo
 import { defaultLayout, type AssetLayout } from './assets'
 import { VAULT_KEY, activitySaved, forgetActivity, loadActivity, readActivity, readAssetLayout, readUserTokens, saveAssetLayout, saveUserTokens, savedVaultId, saveAccounts, forgetWallet, nextAccount, nextOwnPhraseSlot, saveWalletEmoji, saveWalletName, walletEmoji, walletIds, walletName, readPreferences, saveActivity, savePreferences, forgetContacts, loadContacts, saveContacts, type ActivityItem, type Contact, type Preferences } from './storage'
 import type { Session } from './vault'
+import { deriveSession, stopDeriving } from './derive'
 import type { Prices, Quote } from './rpc'
 import type { Balance } from './components/Overview'
 import { t } from './i18n'
@@ -47,6 +48,11 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
   const connection = useRef<AbortController | null>(null)
   const refreshRequest = useRef<AbortController | null>(null)
   const submitting = useRef(false)
+  // While unlocked: opened wallets by list place, and each wallet's last balances, so switching back is instant. Memory only.
+  const sessions = useRef(new Map<number, Promise<Session>>())
+  const seen = useRef(new Map<string, { balances: Partial<Record<NetworkId, Balance>>; tokens: Record<string, Balance> }>())
+  const target = useRef<number | undefined>(undefined)
+  const [switching, setSwitching] = useState<string>()
 
   const resetRequests = useCallback(() => {
     connection.current?.abort()
@@ -58,6 +64,11 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
   const lock = useCallback(() => {
     if (moneroUsed) void import('./moneroWallet').then((monero) => monero.closeMonero())
     active.current = undefined
+    target.current = undefined
+    sessions.current.clear()
+    seen.current.clear()
+    stopDeriving()
+    setSwitching(undefined)
     forgetActivity()
     forgetContacts()
     setContacts([])
@@ -126,10 +137,18 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
     await Promise.race([refresh('balances', true), new Promise((done) => setTimeout(done, 8000))])
   }
 
+  // Remember what each wallet showed, for when you switch back to it.
+  useEffect(() => {
+    if (session) seen.current.set(session.id, { balances, tokens: tokenBalances })
+  }, [session, balances, tokenBalances])
+
   function start(value: Session) {
     const ready = preloaded.current === value
     preloaded.current = undefined
     active.current = value
+    target.current = undefined
+    setSwitching(undefined)
+    sessions.current.set(value.slot, Promise.resolve(value))
     if (!ready) resetRequests()
     setSaved(true)
     setSession(value)
@@ -141,8 +160,10 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
     setLayout(readAssetLayout(value.id, defaultLayout))
     loadWallets(value.vault)
     if (ready) return
-    setBalances({})
-    setTokenBalances({})
+    // A wallet opened before shows its last balances while new ones load.
+    const last = seen.current.get(value.id)
+    setBalances(last?.balances ?? {})
+    setTokenBalances(last?.tokens ?? {})
     // Load balances right after unlock/switch.
     if (!currentPreferences.current.offline) void refresh('balances', true)
   }
@@ -237,11 +258,37 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
     setWallets(walletIds(vault).map(({ id, account }) => ({ id, account, name: walletName(id), emoji: walletEmoji(id, account) })))
   }
 
+  /** A wallet's session, made once per unlock. */
+  function openSlot(wallet: Session, slot: number) {
+    const saved = sessions.current.get(slot)
+    if (saved) return saved
+    const next = import('./vault').then((vault) => vault.walletSource(wallet, slot))
+      .then((source) => deriveSession({ vault: wallet.vault, root: wallet.root, slot, ...source }))
+    sessions.current.set(slot, next)
+    next.catch(() => { if (sessions.current.get(slot) === next) sessions.current.delete(slot) })
+    return next
+  }
+
+  /** Make the listed wallets ready in the background while the Wallets sheet is open. */
+  async function warmWallets() {
+    const wallet = active.current
+    if (!wallet) return
+    for (const { account } of walletIds(wallet.vault).slice(0, 20)) {
+      if (active.current?.vault !== wallet.vault) return
+      if (!sessions.current.has(account)) await openSlot(wallet, account).catch(() => {})
+    }
+  }
+
+  /** The tapped wallet shows as open right away; its balances follow. */
   async function switchWallet(account: number) {
     const wallet = active.current
-    if (!wallet || account === wallet.slot) return
-    const next = await (await import('./vault')).accountSession(wallet, account)
-    if (active.current !== wallet) return
+    if (!wallet) return
+    target.current = account
+    if (account === wallet.slot) { setSwitching(undefined); return }
+    setSwitching(account ? `${wallet.vault}:${account}` : wallet.vault)
+    const next = await openSlot(wallet, account).catch(() => undefined)
+    if (target.current !== account || active.current?.vault !== wallet.vault) return
+    if (!next) { target.current = undefined; setSwitching(undefined); return }
     try { saveAccounts(wallet.vault, { active: account }) } catch { /* Still switch for this session. */ }
     start(next)
   }
@@ -287,7 +334,7 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
     const rest = list.filter((item) => item.account !== account)
     if (!entry || !rest.length) return false
     if (account === wallet.slot) {
-      const next = await (await import('./vault')).accountSession(wallet, rest[0].account)
+      const next = await openSlot(wallet, rest[0].account)
       if (active.current !== wallet) return false
       try { saveAccounts(wallet.vault, { order: rest.map((item) => item.account), active: rest[0].account }) } catch { notify('This browser could not delete the wallet.'); return false }
       start(next)
@@ -295,6 +342,8 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
       try { saveAccounts(wallet.vault, { order: rest.map((item) => item.account) }) } catch { notify('This browser could not delete the wallet.'); return false }
     }
     try { forgetWallet(entry.id) } catch { /* Leftovers are harmless, the wallet is gone from the list. */ }
+    sessions.current.delete(account)
+    seen.current.delete(entry.id)
     if (account >= 100) await (await import('./vault')).removeOwnPhrase(wallet, account).catch(() => {})
     loadWallets(wallet.vault)
     notify('Wallet deleted')
@@ -325,6 +374,7 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
     try { savePreferences(next) } catch { notify('This browser could not save your preferences.'); return false }
     currentPreferences.current = next
     if (change.environment || change.rpc || change.offline !== undefined) {
+      seen.current.clear()
       resetRequests()
       setBalances({})
       setTokenBalances({})
@@ -544,8 +594,10 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
 
   return {
     contacts, editContact,
-    preferences, balances, tokenBalances, layout, arrange, userTokens, importToken, removeToken, items, refreshing, session, name, wallets, prices, changes,
-    emoji: wallets.find((entry) => entry.id === session?.id)?.emoji,
+    preferences, balances, tokenBalances, layout, arrange, userTokens, importToken, removeToken, items, refreshing, session, wallets, prices, changes,
+    name: wallets.find((entry) => entry.id === switching)?.name ?? name,
+    emoji: wallets.find((entry) => entry.id === (switching ?? session?.id))?.emoji,
+    activeWallet: switching ?? session?.id, warmWallets,
     mode: session ? 'wallet' as const : saved ? 'locked' as const : 'none' as const,
     lock, start, preload, update, refresh, prepare, prepareSwap, prepareAnySwap, prepareDapp, withEndpoint, submit, removed, rename, setEmoji, switchWallet, addWallet, addPhraseWallet, orderWallets, deleteWallet,
   }

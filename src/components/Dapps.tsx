@@ -127,7 +127,7 @@ export function ConnectedApps({ close, offline, initialLink = '' }: { close: () 
     {scanning ? <div className="form">
       <Scanner stream={camera} found={(value) => { setScanning(false); setCamera(undefined); setLink(value); void connect(value) }} failed={(problem) => { setScanning(false); setCamera(undefined); setError(problem); setTries((count) => count + 1) }} />
       <p className="field-note">{t('Point the camera at the WalletConnect QR code on the app’s site.')}</p>
-      <button className="button text-button wide" onClick={() => { setScanning(false); setCamera(undefined) }}><ArrowLeft size={16} /> Back</button>
+      <button className="button text-button wide" onClick={() => { setScanning(false); setCamera(undefined) }}><ArrowLeft size={16} /> {t('Back')}</button>
     </div> : <form className="form" onSubmit={(event: FormEvent) => { event.preventDefault(); void connect() }}>
       <p className="dialog-intro">{t('Use Still with apps and sites that support WalletConnect. Pick WalletConnect in the app, then scan its QR code or paste its link.')}</p>
       <label className="field">{t('WalletConnect link')}
@@ -140,8 +140,8 @@ export function ConnectedApps({ close, offline, initialLink = '' }: { close: () 
       </label>
       <ErrorSlot error={error} attempt={tries} />
       <div className="two-actions">
-        <button type="button" className="button secondary" onClick={() => void scan()} disabled={busy || loading}><ScanLine size={17} /> Scan</button>
-        <button type="submit" className="button primary" disabled={busy || loading || !link.trim()}>{busy ? <LoaderCircle size={17} className="spin" /> : <Link2 size={17} />} Connect</button>
+        <button type="button" className="button secondary" onClick={() => void scan()} disabled={busy || loading}><ScanLine size={17} /> {t('Scan')}</button>
+        <button type="submit" className="button primary" disabled={busy || loading || !link.trim()}>{busy ? <LoaderCircle size={17} className="spin" /> : <Link2 size={17} />} {t('Connect')}</button>
       </div>
       <p className="group-label dapp-label">{loading ? t('Loading…') : sessions.length ? t('Connected') : t('No apps connected')}</p>
       {sessions.length > 0 && <ul className="credits-list dapp-list">
@@ -378,7 +378,7 @@ function RequestSheet({ prompt, wallet, busy, error, tries, cancel, run, leave }
       <AppHeader name={app.name} url={app.url} />
       {otherWallet ? <Notice error>{t('This app is connected to a different wallet. Switch to that wallet in Still, then try again in the app.')}</Notice>
         : loadError ? <Notice error>{loadError}</Notice>
-        : !details ? <div className="dapp-loading"><LoaderCircle size={22} className="spin" /> Checking request…</div>
+        : !details ? <div className="dapp-loading"><LoaderCircle size={22} className="spin" /> {t('Checking request…')}</div>
         : details.kind === 'message' ? <>
           <pre className="sign-box">{details.text}</pre>
           <Notice>{t('Signing proves you own this wallet. It doesn’t send coins.')}</Notice>
@@ -393,7 +393,7 @@ function RequestSheet({ prompt, wallet, busy, error, tries, cancel, run, leave }
         </> : details.kind === 'transaction' ? <>
           <dl className="review-list">
             <div><dt>{t('Network')}</dt><dd>{details.quote.network.name} · {details.quote.network.label}</dd></div>
-            <div><dt>{details.call ? 'Contract' : 'Recipient'}</dt><dd className="mono">{shortAddress(details.quote.to)}</dd></div>
+            <div><dt>{details.call ? t('Contract') : t('Recipient')}</dt><dd className="mono">{shortAddress(details.quote.to)}</dd></div>
             {details.call?.kind === 'approve' && <><div><dt>{t('Action')}</dt><dd>{t(details.call.label)}</dd></div><div><dt>{t('Spender')}</dt><dd className="mono">{shortAddress(details.call.spender)}</dd></div><div><dt>{t('Limit')}</dt><dd>{['Unlimited', 'All items', 'Removed'].includes(details.call.amount) ? t(details.call.amount) : details.call.amount}</dd></div></>}
             {details.call?.kind === 'transfer' && <><div><dt>{t('Action')}</dt><dd>{t(details.call.label)}</dd></div><div><dt>{t('To')}</dt><dd className="mono">{shortAddress(details.call.to)}</dd></div><div><dt>{t('Amount')}</dt><dd>{['Unlimited', 'All items', 'Removed'].includes(details.call.amount) ? t(details.call.amount) : details.call.amount}</dd></div></>}
             {details.call?.kind === 'call' && <div><dt>{t('Action')}</dt><dd>{t(details.call.label)}</dd></div>}

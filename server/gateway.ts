@@ -15,7 +15,7 @@ const evmMethods = new Set([
 const solanaMethods = new Set([
   'getGenesisHash', 'getBalance', 'getMultipleAccounts', 'getAccountInfo', 'getTokenAccountBalance',
   'getLatestBlockhash', 'getFeeForMessage', 'getMinimumBalanceForRentExemption', 'getSignatureStatuses',
-  'getBlockHeight', 'sendTransaction', 'getAsset', 'searchAssets',
+  'getBlockHeight', 'sendTransaction', 'simulateTransaction', 'getAsset', 'searchAssets',
 ])
 // Helius DAS methods take named params.
 const objectParams = new Set(['getAsset', 'searchAssets'])

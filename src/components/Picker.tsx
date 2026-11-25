@@ -54,6 +54,35 @@ export function Picker<T extends string | number>({ value, options, onChange, la
     }
   }, [open])
 
+  // Scrolling inside the open list never moves the page behind it, also once the list hits its end or has nothing to scroll.
+  useEffect(() => {
+    const box = float.current
+    if (!open || !box) return
+    const blocked = (target: EventTarget | null, delta: number) => {
+      const element = list.current
+      if (!element || !element.contains(target as Node)) return true
+      const end = element.scrollHeight - element.clientHeight
+      return end <= 0 || (delta < 0 && element.scrollTop <= 0) || (delta > 0 && element.scrollTop >= end - 1)
+    }
+    const wheel = (event: WheelEvent) => { if (blocked(event.target, event.deltaY)) event.preventDefault() }
+    let lastY = 0
+    const touchStart = (event: TouchEvent) => { lastY = event.touches[0]?.clientY ?? 0 }
+    const touchMove = (event: TouchEvent) => {
+      const y = event.touches[0]?.clientY ?? lastY
+      const delta = lastY - y
+      lastY = y
+      if (event.cancelable && delta && blocked(event.target, delta)) event.preventDefault()
+    }
+    box.addEventListener('wheel', wheel, { passive: false })
+    box.addEventListener('touchstart', touchStart, { passive: true })
+    box.addEventListener('touchmove', touchMove, { passive: false })
+    return () => {
+      box.removeEventListener('wheel', wheel)
+      box.removeEventListener('touchstart', touchStart)
+      box.removeEventListener('touchmove', touchMove)
+    }
+  }, [open])
+
   // Portaled (into the open sheet, since sheets are top layer) so nothing clips it. Opens below, or above if there's no room, clamped to the screen.
   useLayoutEffect(() => {
     if (!open || !button.current) return

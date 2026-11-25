@@ -21,7 +21,19 @@ const csp = [
 ].join('; ')
 
 export default defineConfig(({ mode }) => ({
+  // The key worker has lazy imports, which only ES module workers can split.
+  worker: { format: 'es' },
   define: { 'import.meta.env.VITE_BUILD': JSON.stringify(new Date().toISOString().slice(5, 16).replace('T', ' ')) },
+  build: {
+    rolldownOptions: {
+      output: {
+        // WalletConnect chunks get their own prefix so the service worker can leave them to load on demand.
+        chunkFileNames: (chunk) => chunk.moduleIds.some((id) => /node_modules[\\/](@walletconnect|@reown)[\\/]/.test(id)) ? 'assets/wc-[hash].js' : 'assets/[name]-[hash].js',
+        // Lazy chunks share these two with the main bundle. In a chunk of their own, a new build of the app doesn't rename every lazy chunk, so phones only download what really changed.
+        codeSplitting: { groups: [{ name: 'shared', test: /vite[\\/]preload-helper|[\\/]src[\\/]passwords\.ts$/ }] },
+      },
+    },
+  },
   plugins: [
     react(),
     // `npm run dev:phone` serves HTTPS on the LAN so a phone can test (crypto needs a secure origin).
@@ -76,8 +88,8 @@ self.addEventListener('activate', (event) => event.waitUntil((async () => {
         skipWaiting: true,
         clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,png,svg,jpg,woff2,webmanifest,txt}'],
-        // The XMR wallet worker (3.7 MB) loads on demand, not on install.
-        globIgnores: ['**/monero.worker-*.js', '**/apple-touch-icon*', 'icons/{apple-touch-icon,still-touch-180,icon-192,icon-512,maskable-512}.png'],
+        // The XMR wallet worker (3.7 MB) and WalletConnect load on demand, not on install. Share and touch icons are never shown in the app.
+        globIgnores: ['**/monero.worker-*.js', '**/wc-*.js', '**/apple-touch-icon*', 'icons/{apple-touch-icon,still-touch-180,icon-192,icon-512,maskable-512,share-512}.png'],
         // Pages load fresh from the network so every open shows the latest build. Offline (or slow, 3s) falls back to the cached page.
         navigateFallback: null,
         directoryIndex: 'no-directory-index',

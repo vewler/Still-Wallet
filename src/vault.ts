@@ -166,7 +166,7 @@ async function deriveActivityKey(mnemonic: string, vault: string) {
   }
 }
 
-async function sessionFor(vault: string, mnemonic: string, account = 0, root = mnemonic, slot = account): Promise<Session> {
+export async function sessionFor(vault: string, mnemonic: string, account = 0, root = mnemonic, slot = account): Promise<Session> {
   if (!Number.isInteger(account) || account < 0 || account >= 100) throw new Error('Invalid wallet.')
   const ethereum = evmAccount(mnemonic, account).address
   const [solanaKey, keys, xmr, activityKey, sui, aptos, l1] = await Promise.all([
@@ -230,6 +230,14 @@ async function walletSession(vault: string, root: string, slot: number, fallback
 /** Open another wallet from the unlocked vault, no password needed. */
 export function accountSession(session: Session, slot: number) {
   return walletSession(session.vault, session.root, slot)
+}
+
+/** The phrase and derivation index behind a place on the Wallets list, so the keys can be made off the main thread. */
+export async function walletSource(session: Session, slot: number) {
+  if (slot < firstOwnPhraseSlot) return { mnemonic: session.root, account: slot }
+  const phrase = await readPhrases(session.vault, session.root).then((phrases) => phrases[slot], () => undefined)
+  if (phrase && validPhrase(phrase)) return { mnemonic: phrase, account: 0 }
+  throw new Error('Still could not open this wallet.')
 }
 
 /** Save a wallet with its own phrase in a free slot. */

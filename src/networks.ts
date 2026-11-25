@@ -150,6 +150,7 @@ export function parseAmount(text: string, decimals: number) {
 }
 
 export function formatAmount(amount: bigint, decimals: number) {
+  if (!decimals) return amount.toString()
   const padded = amount.toString().padStart(decimals + 1, '0')
   const whole = padded.slice(0, -decimals)
   const fraction = padded.slice(-decimals).replace(/0+$/, '')

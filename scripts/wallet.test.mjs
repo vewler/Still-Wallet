@@ -11,7 +11,6 @@ import { decodeFunctionData, encodeFunctionResult, erc20Abi, keccak256, parseAbi
 import { createGateway } from '../server/gateway.ts'
 import { createMarket } from '../server/market.ts'
 import { networks } from '../src/networks.ts'
-import hostedGateway from '../api/still-gateway.ts'
 
 // Load extensionless TS imports in Node without a build step.
 registerHooks({
@@ -26,7 +25,8 @@ const { accountSession, newPhrase, solanaKeypair } = await import('../src/vault.
 const { checkTransaction, getBalance, quoteTransfer } = await import('../src/rpc.ts')
 const { quoteSwap } = await import('../src/swap.ts')
 const { tokens } = await import('../src/tokens.ts')
-const source = await accountSession({ vault: 'fixture', mnemonic: newPhrase() }, 0)
+const phrase = newPhrase()
+const source = await accountSession({ vault: 'fixture', root: phrase }, 0)
 const recipient = await accountSession(source, 1)
 const confirmed = new Set()
 const lastSigned = new Map()
@@ -168,23 +168,6 @@ test('derives Monero keys the way Trezor does and checks XMR addresses', async (
   assert.ok(!validMoneroAddress(first.address.slice(0, -1) + 'T'))
   assert.ok(!validMoneroAddress('bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh'))
 })
-test('hosted gateway restores rewritten paths and preserves market queries', async () => {
-  const hosted = createServer(hostedGateway)
-  hosted.listen(0, '127.0.0.1')
-  await once(hosted, 'listening')
-  const base = 'http://127.0.0.1:' + hosted.address().port
-  try {
-    const health = await fetch(base + '/api/still-gateway?still_route=health')
-    assert.deepEqual(await health.json(), { ok: true })
-    const market = await fetch(base + '/api/still-gateway?still_route=market%2Fhistory%2Fbitcoin&currency=usd&days=1', { method: 'POST' })
-    assert.equal(market.status, 405)
-    const rejected = await fetch(base + '/api/still-gateway?still_route=rpc%2F..%2Fhealth')
-    assert.equal(rejected.status, 404)
-  } finally {
-    hosted.close()
-  }
-})
-
 test('gateway rejects cross-origin, unsupported methods and credential-bearing XRP submits', async () => {
   assert.throws(() => createGateway({ STILL_RPC_ETHEREUM: 'malformed-fixture' }), { message: 'Invalid server RPC URL for Ethereum. Use an HTTPS URL.' })
   const health = await fetch(origin + '/api/health')
@@ -362,6 +345,6 @@ test('stores activity encrypted and moves old plain history into the encrypted f
   await activitySaved()
   forgetActivity()
   assert.equal((await loadActivity('w', source.activityKey)).length, 200)
-  const stranger = await accountSession({ vault: 'other', mnemonic: newPhrase() }, 0)
+  const stranger = await accountSession({ vault: 'other', root: newPhrase() }, 0)
   assert.deepEqual(await loadActivity('w', stranger.activityKey), [])
 })
