@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
-import { ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Box, Check, Copy, ExternalLink, QrCode, ShieldAlert, Shuffle } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ArrowUp, Box, Check, Copy, ExternalLink, QrCode, ShieldAlert, Shuffle } from 'lucide-react'
 import { addressFor, crossNetworks, explorerUrl, networks as mainnets, type Addresses, type Network, type NetworkId } from '../networks'
 import type { Quote } from '../rpc'
 import type { ActivityItem, Contact } from '../storage'
@@ -116,7 +116,16 @@ function SwapAssetField({ label, value, change }: { label: string; value: string
   </div>
 }
 
-/** Switch the two coins: both boxes slide past each other into their new place while the arrow turns. */
+/** Up/down arrows that each spin half a turn forward per switch, so up and down trade sides. */
+function SwitchArrows({ turns }: { turns: number }) {
+  const spin = { transform: `rotate(${turns * 180}deg)` }
+  return <svg width={17} height={17} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <g className="swap-arrow" style={spin}><path d="m3 8 4-4 4 4" /><path d="M7 4v16" /></g>
+    <g className="swap-arrow" style={spin}><path d="m21 16-4 4-4-4" /><path d="M17 20V4" /></g>
+  </svg>
+}
+
+/** Switch the two coins: both boxes slide past each other into their new place while the arrows turn. */
 function flipSwap(button: HTMLButtonElement, swap: () => void) {
   const pay = button.previousElementSibling?.querySelector<HTMLElement>('.picker-button')
   const receive = button.nextElementSibling?.querySelector<HTMLElement>('.picker-button')
@@ -131,7 +140,13 @@ function flipSwap(button: HTMLButtonElement, swap: () => void) {
   ], timing)
   slide(pay, distance)
   slide(receive, -distance)
-  button.querySelector('svg')?.animate([{ transform: 'rotate(0deg)' }, { transform: 'rotate(180deg)' }], timing)
+  // Halfway through the spin the arrows stretch out wide to both sides, then spring back.
+  button.querySelector('svg')?.animate([
+    { transform: 'none' },
+    { transform: 'scale(1.7, .75)', offset: .5 },
+    { transform: 'scale(.94, 1.06)', offset: .8 },
+    { transform: 'none' },
+  ], timing)
 }
 
 export function Swap({ quote, from, customSlippage, ...actions }: TransactionActions & {
@@ -148,12 +163,13 @@ export function Swap({ quote, from, customSlippage, ...actions }: TransactionAct
   })
   const [amount, setAmount] = useState('')
   const [slippage, setSlippage] = useState(0)
+  const [turns, setTurns] = useState(0)
   const sellNetwork = tokenById(sell)?.network ?? sell
   const buyNetwork = tokenById(buy)?.network ?? buy
   const uniswap = sellNetwork === buyNetwork && (sellNetwork === 'ethereum-main' || sellNetwork === 'base-main')
   return <TransactionDialog {...actions} title="Swap" prepare={(signal) => quote(sell, buy, amount, signal, slippage === -1 ? customSlippage ?? 0 : slippage)}>
     <SwapAssetField label="You pay" value={sell} change={(next) => { if (next === buy) setBuy(sell); setSell(next) }} />
-    <button type="button" className="swap-flip" aria-label={t('Switch coins')} title={t('Switch coins')} onClick={(event) => flipSwap(event.currentTarget, () => { setSell(buy); setBuy(sell) })}><ArrowUpDown size={17} /></button>
+    <button type="button" className="swap-flip" aria-label={t('Switch coins')} title={t('Switch coins')} onClick={(event) => flipSwap(event.currentTarget, () => { setSell(buy); setBuy(sell); setTurns((turn) => turn + 1) })}><SwitchArrows turns={turns} /></button>
     <SwapAssetField label="You receive" value={buy} change={(next) => { if (next === sell) setSell(buy); setBuy(next) }} />
     <label className="field">{t('Amount in {symbol}', { symbol: tokenById(sell)?.symbol ?? mainnets[sell as NetworkId].symbol })}<input name="amount" inputMode="decimal" autoComplete="off" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.target.value)} maxLength={36} required /></label>
     <div className="field"><span>{t('Max slippage')}</span>

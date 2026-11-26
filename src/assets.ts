@@ -36,10 +36,10 @@ export const popularAssets = [
   'ethereum-main:SHIB', 'ethereum-main:PEPE', 'solana-main:BONK', 'solana-main:WIF', 'solana-main:TRUMP', 'ethereum-main:UNI',
 ]
 
-/** Priority coins: the first 8 of the landing Works with strip. Pickers show only these until you search. */
-export const priorityAssets = ['bitcoin-main', 'ethereum-main', 'solana-main', 'litecoin-main', 'ethereum-main:USDC', 'monero-main', 'xrp-main', 'bnb-main']
-/** The priority coins that are networks, for network lists. */
-export const priorityNetworks = priorityAssets.filter((id) => !id.includes(':')) as NetworkId[]
+/** Priority coins: the first 8 of the landing Works with strip, then Tether and Tron. Pickers show only these until you search. */
+export const priorityAssets = ['bitcoin-main', 'ethereum-main', 'solana-main', 'litecoin-main', 'ethereum-main:USDC', 'monero-main', 'xrp-main', 'bnb-main', 'ethereum-main:USDT', 'tron-main']
+/** The priority coins that are networks, for network lists (the first 8 only). */
+export const priorityNetworks = priorityAssets.slice(0, 8).filter((id) => !id.includes(':')) as NetworkId[]
 
 export type AssetLayout = { order: string[]; shown: string[] }
 export const defaultLayout: AssetLayout = { order: defaultShown, shown: defaultShown }

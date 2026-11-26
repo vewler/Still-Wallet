@@ -63,11 +63,6 @@ export function PrivacyPolicy({ mainRef, back }: { mainRef: Ref<HTMLElement>; ba
       <h2>Contact</h2>
       <p>Questions? DM <strong>@vewler</strong> on Discord.</p>
     </main>
-
-    <footer className="landing-footer landing-container">
-      <span><strong>Still</strong></span>
-      <a href="/LICENSE.txt" target="_blank" rel="noreferrer">{t('MIT License')}</a>
-    </footer>
   </div>
 }
 
@@ -106,11 +101,6 @@ export function CreditsPage({ mainRef, back }: { mainRef: Ref<HTMLElement>; back
         {dataSources.map(([name, kind, use]) => <li key={name}><span>{name}<br /><small>{t(use)}</small></span><em>{t(kind)}</em></li>)}
       </ul>
     </main>
-
-    <footer className="landing-footer landing-container">
-      <span><strong>Still</strong></span>
-      <a href="/LICENSE.txt" target="_blank" rel="noreferrer">{t('MIT License')}</a>
-    </footer>
   </div>
 }
 
@@ -149,11 +139,6 @@ export function FaqPage({ mainRef, back }: { mainRef: Ref<HTMLElement>; back: st
       </ul>
       <p>{tx('Still stuck? DM {name} on Discord.', { name: <strong>@vewler</strong> })}</p>
     </main>
-
-    <footer className="landing-footer landing-container">
-      <span><strong>Still</strong></span>
-      <a href="/LICENSE.txt" target="_blank" rel="noreferrer">{t('MIT License')}</a>
-    </footer>
   </div>
 }
 

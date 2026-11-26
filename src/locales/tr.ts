@@ -419,7 +419,7 @@ const dictionary: Record<string, string> = {
   "Expired": "Süresi doldu",
   "Main developer": "Baş geliştirici",
   "Tester": "Test eden",
-  "Donor": "Bağışçı",
+  "Donator": "Bağışçı",
   "Token list": "Token listesi",
   "Prices and charts": "Fiyatlar ve grafikler",
   "Solana network": "Solana ağı",

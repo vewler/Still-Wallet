@@ -5,7 +5,7 @@ export const team = [
 ] as const
 
 export const supporters = [
-  ['Michelangelo P.', 'Donor'],
+  ['Michelangelo P.', 'Donator'],
 ] as const
 
 /** Outside data providers. */

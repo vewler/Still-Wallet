@@ -399,7 +399,7 @@ const dictionary: Record<string, string> = {
   "Failed": "Mislukt",
   "Expired": "Verlopen",
   "Main developer": "Hoofdontwikkelaar",
-  "Donor": "Donateur",
+  "Donator": "Donateur",
   "Token list": "Tokenlijst",
   "Prices and charts": "Prijzen en grafieken",
   "Solana network": "Solana-netwerk",

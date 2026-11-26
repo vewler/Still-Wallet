@@ -420,7 +420,7 @@ const dictionary: Record<string, string> = {
   "Expired": "만료됨",
   "Main developer": "메인 개발자",
   "Tester": "테스터",
-  "Donor": "후원자",
+  "Donator": "후원자",
   "Prices and charts": "가격 및 차트",
   "Solana network": "Solana 네트워크",
   "Token discovery": "토큰 검색",

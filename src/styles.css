@@ -259,6 +259,7 @@ button.token:active, a.token:active { transform: scale(.99); }
 .empty-state h2 { font-size: 18px; font-weight: 650; }
 .empty-state p { color: var(--muted); font-size: 14px; line-height: 1.5; max-width: 30ch; }
 .empty-icon { display: grid; place-items: center; width: 56px; height: 56px; margin: 0 auto 6px; border-radius: 50%; background: var(--card); color: var(--muted); }
+.empty-icon--bare { background: none; }
 
 /* Sheets and dialogs */
 .dialog {
@@ -778,17 +779,14 @@ button.text-link { padding: 0; }
 .picker-float { z-index: 1000; overscroll-behavior: contain; }
 .picker-list { overscroll-behavior: contain; }
 .picker-float .picker-list { margin: 0; box-shadow: 0 16px 40px #000a; }
-/* Grows out of the Add wallet button, shrinks back into it on close. */
-.add-wallet-menu .picker-list { transform-origin: top center; animation: add-menu-in .22s var(--ease-out); }
-.add-wallet-menu--up .picker-list { transform-origin: bottom center; --menu-y: 8px; }
-.add-wallet-menu.closing .picker-list { animation: add-menu-out .16s ease-in forwards; }
-@keyframes add-menu-in { from { opacity: 0; transform: translateY(var(--menu-y, -8px)) scale(.94); } }
-@keyframes add-menu-out { to { opacity: 0; transform: translateY(var(--menu-y, -8px)) scale(.94); } }
-.add-wallet-menu .picker-list li svg { flex: none; color: var(--muted); }
-.add-wallet-menu .picker-list li { position: relative; transition: background .15s; }
-.add-wallet-menu .picker-list li + li::before { content: ''; position: absolute; top: -1px; left: 10px; right: 10px; height: 1px; background: var(--stroke); pointer-events: none; }
-@media (hover: hover) and (pointer: fine) { .add-wallet-menu .picker-list li:hover { background: var(--card-hover); } .add-wallet-menu .picker-list li:hover svg { color: var(--text); } .add-wallet-menu .picker-list li:hover::before, .add-wallet-menu .picker-list li:hover + li::before { opacity: 0; } }
-.add-wallet-menu .picker-list li::before { transition: opacity .15s; }
+/* Add wallet: the two choices open inside the sheet, right above the button, and fold back into it. */
+.add-wallet-choices { display: grid; gap: 8px; }
+.add-wallet-choices .choice { padding: 12px 14px; }
+.add-wallet-choices .choice-icon { width: 40px; height: 40px; }
+.add-wallet-slot .choice { transform-origin: bottom center; transition: transform .3s var(--ease-out), opacity .3s var(--ease-out), background .15s; }
+.add-wallet-slot .choice:nth-child(1) { transition-delay: 30ms; }
+.add-wallet-slot:not(.open) .choice { opacity: 0; transform: translateY(14px) scale(.96); transition-delay: 0s; }
+.add-wallet-slot.open .choice:active { transform: scale(.98); transition-delay: 0s; }
 .picker-float.picker--compact .picker-list li { min-height: 40px; }
 :root[data-layout='phone'] .picker-float.picker--compact .picker-list li { min-height: 44px; }
 .refresh-icon { display: inline-grid; place-items: center; }
@@ -859,6 +857,7 @@ html, body { overscroll-behavior-y: none; }
 .picker-list li.picker-more { justify-content: center; min-height: 34px; color: var(--muted); font-size: 13px; cursor: default; }
 /* Flip pay and receive. Centered between the two boxes: the bottom margin pulls up over the "You receive" label row. */
 .swap-flip { position: relative; z-index: 1; display: grid; place-items: center; width: 36px; height: 36px; margin: -4px auto -27px; border-radius: 50%; border: 1px solid var(--stroke); background: var(--surface); color: var(--muted); transition: color .15s, background .15s, border-color .15s, transform .25s var(--ease-out); }
+.swap-arrow { transform-box: fill-box; transform-origin: center; transition: transform .42s cubic-bezier(.2, .8, .2, 1); }
 .swap-flip:focus-visible { color: var(--text); border-color: var(--blue); outline: none; }
 @media (hover: hover) and (pointer: fine) { .swap-flip:hover { color: var(--text); background: var(--card-hover); } }
 .picker-float.closing .picker-list { animation: picker-out .15s ease-in forwards; }

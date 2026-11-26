@@ -93,7 +93,7 @@
 .phone-tokens strong { font-size: 12px; font-weight: 640; }
 .float-card {
   position: absolute; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 16px;
-  background: #17171bf2; border: 1px solid #ffffff14;
+  background: color-mix(in srgb, #050505 60%, transparent); backdrop-filter: saturate(180%) blur(2px); border: 1px solid #ffffff14;
   box-shadow: 0 16px 40px #0009; font-size: 13px;
 }
 .float-card span { display: grid; line-height: 1.3; }
@@ -215,6 +215,7 @@
   .landing-actions, .hero-points { justify-content: center; }
   .feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .steps { grid-template-columns: minmax(0, 1fr); }
+  .landing-about { grid-template-columns: minmax(0, 1fr); gap: 13px; }
 }
 
 @media (max-width: 640px), (pointer: coarse) {

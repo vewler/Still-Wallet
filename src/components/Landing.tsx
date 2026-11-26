@@ -367,7 +367,6 @@ function MarketSection({ action, openWallet }: { action: string; openWallet: () 
   const glide = useRef(0)
   // Card index the arrows are heading to, null when the row is at rest.
   const target = useRef<number | null>(null)
-  const fading = useRef<Animation>(undefined)
 
   useEffect(() => {
     // Paused network requests cover the landing page too.
@@ -395,20 +394,16 @@ function MarketSection({ action, openWallet }: { action: string; openWallet: () 
 
   const list = (coins ?? []).filter((coin) => tab === 'top' || !stable.has(coin.id))
     .sort((a, b) => tab === 'top' ? a.rank - b.rank : Math.abs(b.change) - Math.abs(a.change))
-  // Tab switch: the row fades out, then the new tab's row (keyed by tab) fades in from the start with every line drawing at once.
+  // Tab switch: cards stay put and each one crossfades to the new tab's coin.
   const switchTab = (next: 'top' | 'movers') => {
-    const row = stage.current?.querySelector<HTMLElement>('.market-row')
-    if (next === tab || !row || fading.current) return
-    cancelAnimationFrame(glide.current)
-    target.current = null
-    fading.current = row.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, easing: 'ease-out', fill: 'forwards' })
-    fading.current.finished.then(() => { fading.current = undefined; setTab(next) }, () => { fading.current = undefined })
+    if (next === tab) return
+    setTab(next)
   }
   // Arrows: a press while gliding retargets from where the row is headed, so fast clicks keep moving without snapping back.
   const scroll = (direction: number) => {
     const row = stage.current?.querySelector<HTMLElement>('.market-row')
     const cards = row ? [...row.querySelectorAll<HTMLElement>('.market-card')] : []
-    if (!row || cards.length < 2 || fading.current) return
+    if (!row || cards.length < 2) return
     // Exact snap positions so turning snapping back on never shifts a pixel.
     const base = row.getBoundingClientRect().left + parseFloat(getComputedStyle(row).scrollPaddingLeft) - row.scrollLeft
     const max = row.scrollWidth - row.clientWidth
@@ -459,7 +454,7 @@ function MarketSection({ action, openWallet }: { action: string; openWallet: () 
         <button type="button" aria-label={t('Scroll forward')} onClick={() => scroll(1)}><ArrowRight size={18} /></button>
       </div>
     </div>
-    <div ref={stage} className="market-stage reveal"><div key={tab} className="market-row" role="list">
+    <div ref={stage} className="market-stage reveal"><div className="market-row" role="list">
       {coins === undefined ? Array.from({ length: 4 }, (_, index) => <div key={index} className="market-card market-card--loading" role="listitem" />)
         : list.length === 0 ? <p className="market-empty">{t('Prices are unavailable right now.')}</p>
         : list.map((coin, index) => {

@@ -413,7 +413,7 @@ const dictionary: Record<string, string> = {
   "Expired": "Expirada",
   "Main developer": "Desenvolvedor principal",
   "Tester": "Testador",
-  "Donor": "Doador",
+  "Donator": "Doador",
   "Token list": "Lista de tokens",
   "Prices and charts": "Preços e gráficos",
   "Solana network": "Rede Solana",

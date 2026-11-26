@@ -406,7 +406,7 @@ const dictionary: Record<string, string> = {
   "Failed": "Fehlgeschlagen",
   "Expired": "Abgelaufen",
   "Main developer": "Hauptentwickler",
-  "Donor": "Spender",
+  "Donator": "Spender",
   "Token list": "Token-Liste",
   "Prices and charts": "Preise und Charts",
   "Solana network": "Solana-Netzwerk",

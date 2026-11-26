@@ -179,7 +179,7 @@ export function Access({ locked, protect, intent, close, onSession, erased }: {
       <button type="button" className="button primary wide" onClick={() => swapTo('recover')}><span className="label-swap label-fade"><KeyRound size={17} />{t('Use recovery phrase')}</span></button>
       <div className="two-actions"><button type="button" className="button secondary" onClick={() => swapTo('unlock')}>{t('Cancel')}</button><button type="button" className="button secondary" onClick={() => changeStep('erase')}>{t('Delete wallet')}</button></div>
     </div>}
-    {step === 'erase' && <div className="form"><span className="empty-icon"><Trash2 size={24} /></span>
+    {step === 'erase' && <div className="form"><span className="empty-icon empty-icon--bare"><Trash2 size={40} /></span>
       <p className="dialog-intro dialog-intro--center">{t('Are you sure you want to delete your wallet from Still Wallet on this device? You can only get it back with your recovery phrase.')}</p>
       <ErrorSlot error={error} attempt={tries} />
       <div className="two-actions"><button type="button" className="button primary" onClick={() => changeStep('forgot')} disabled={busy} autoFocus>{t('Cancel')}</button><button type="button" className="button secondary" onClick={() => void deleteWallet()} disabled={busy}><span key={String(busy)} className="label-swap">{busy ? t('Deleting…') : t('Delete wallet')}</span></button></div>

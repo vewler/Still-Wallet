@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
-import { createPortal } from 'react-dom'
-import { Activity, ArrowLeft, ExternalLink, Info, KeyRound, ChartLine, ArrowRight, Check, ChevronDown, Download, Eye, EyeOff, GripVertical, House, Layers3, LoaderCircle, LockKeyhole, Pencil, Plus, ScanFace, Settings, ShieldAlert, SlidersHorizontal, Trash2, WifiOff, X } from 'lucide-react'
+import { Activity, ArrowLeft, ExternalLink, Info, KeyRound, ChartLine, ArrowRight, Check, ChevronDown, ChevronRight, Download, Eye, EyeOff, GripVertical, House, Layers3, LoaderCircle, LockKeyhole, Pencil, Plus, ScanFace, Settings, ShieldAlert, SlidersHorizontal, Trash2, WifiOff, X } from 'lucide-react'
 import { Brand } from './components/Icons'
 import { passwordRules } from './passwords'
 import { registerSW } from 'virtual:pwa-register'
@@ -20,7 +19,7 @@ import { ManageCoins } from './components/Manage'
 import { ImportToken } from './components/ImportToken'
 import { smoothScrollTo } from './scroll'
 import { CreditsPage, ErrorPage, FaqPage, PrivacyPolicy } from './components/Privacy'
-import { Dialog, ErrorSlot, Notice, PasswordInput } from './components/Dialog'
+import { Dialog, ErrorSlot, Notice, PasswordInput, Slot } from './components/Dialog'
 import { useWallet } from './useWallet'
 import { PullRefresh } from './components/PullRefresh'
 import { ConnectedApps, DappPrompts, useDapps } from './components/Dapps'
@@ -39,6 +38,38 @@ const navigation = [
   { id: 'settings', label: 'Settings', icon: Settings },
 ] as const
 const tabs: string[] = navigation.filter(({ id }) => id !== 'networks').map(({ id }) => id)
+
+/** Where a page was scrolled to: a section plus the offset inside it, or the very bottom. */
+type Place = { y: number; bottom: boolean; section: number; offset: number }
+const placeSections = (main: HTMLElement | null) => main ? [...main.querySelectorAll<HTMLElement>(':scope > section')] : []
+function savePlace(main: HTMLElement | null): Place {
+  const y = window.scrollY
+  const bottom = y > 0 && y >= document.documentElement.scrollHeight - innerHeight - 2
+  const sections = placeSections(main)
+  let section = -1
+  sections.forEach((element, index) => { if (element.getBoundingClientRect().top <= 1) section = index })
+  const offset = section < 0 ? y : y - (sections[section].getBoundingClientRect().top + y)
+  return { y, bottom, section, offset }
+}
+/** Puts the page back where it was, and keeps it there while sections above still settle (coin strip fit, market cards loading). Any touch, wheel or key lets go. */
+function holdPlace(place: Place, main: HTMLElement | null) {
+  const apply = () => {
+    const max = document.documentElement.scrollHeight - innerHeight
+    const section = placeSections(main)[place.section]
+    const goal = place.bottom ? max : section ? section.getBoundingClientRect().top + scrollY + place.offset : place.y
+    window.scrollTo(0, Math.max(0, Math.min(max, goal)))
+  }
+  apply()
+  const observer = new ResizeObserver(apply)
+  observer.observe(document.body)
+  const stop = () => {
+    observer.disconnect()
+    clearTimeout(timer)
+    for (const type of ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const) removeEventListener(type, stop)
+  }
+  const timer = window.setTimeout(stop, 2000)
+  for (const type of ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const) addEventListener(type, stop, { passive: true })
+}
 
 type Route = typeof navigation[number]['id'] | 'home' | 'landing' | 'about' | 'privacy' | 'credits' | 'faq' | 'notfound'
 const sheetKeys = new WeakMap<object, number>()
@@ -187,7 +218,7 @@ export default function App() {
   useEffect(() => {
     const onRoute = () => {
       // Old page is still mounted here, save its scroll.
-      scrolls.current.set(scrollKey(shownRoute.current), window.scrollY)
+      scrolls.current.set(scrollKey(shownRoute.current), savePlace(content.current))
       setRoute(currentRoute())
       close()
     }
@@ -222,7 +253,7 @@ export default function App() {
   }, [close, notify])
 
   // Back from Privacy/Credits/FAQ restores the scroll position.
-  const scrolls = useRef(new Map<string, number>())
+  const scrolls = useRef(new Map<string, Place>())
   // / and #about share one saved position.
   const scrollKey = (value: Route) => value === 'about' || value === 'landing' ? 'landing' : value
   const shownRoute = useRef(route)
@@ -232,7 +263,7 @@ export default function App() {
     shownRoute.current = route
     const saved = scrolls.current.get(scrollKey(route))
     if ((from === 'privacy' || from === 'credits' || from === 'faq') && saved !== undefined) {
-      window.scrollTo(0, saved)
+      holdPlace(saved, content.current)
       const settings = document.querySelector('.settings-page')
       if (settings) staggerSettings(settings, true)
       content.current?.focus({ preventScroll: true })
@@ -535,7 +566,7 @@ function RemoveWallet({ session, close, removed }: { session: Session; close: ()
   }
 
   if (sure) return <Dialog title={t('Delete wallet?')} step="sure" close={close} busy={busy}>
-    <div className="form"><span className="empty-icon"><Trash2 size={24} /></span>
+    <div className="form"><span className="empty-icon empty-icon--bare"><Trash2 size={40} /></span>
       <p className="dialog-intro dialog-intro--center">{t('Are you sure you want to delete your wallet from Still Wallet on this device? You can only get it back with your recovery phrase.')}</p>
       <ErrorSlot error={error} attempt={tries} />
       <div className="two-actions"><button className="button primary" type="button" onClick={close} disabled={busy} autoFocus>{t('Cancel')}</button><button className="button secondary" type="button" onClick={() => void remove()} disabled={busy}><span key={String(busy)} className="label-swap">{busy ? t('Deleting…') : t('Delete wallet')}</span></button></div>
@@ -706,7 +737,7 @@ function LockScreen({ mainRef, protect, preload, onSession, removed }: { mainRef
       <button type="button" className="button primary wide" disabled={busy} onClick={() => changeForgot('phrase')} autoFocus><span className="label-swap label-fade"><KeyRound size={17} />{t('Use recovery phrase')}</span></button>
       <div className="two-actions"><button type="button" className="button secondary" disabled={busy} onClick={() => { cameBack.current = true; fadeLabel.current = true; setSwapIn(true); setPhrase(''); setForgot(false) }}>{t('Cancel')}</button><button type="button" className="button secondary" disabled={busy} onClick={() => { setError(''); setConfirmDelete(true) }}>{t('Delete wallet')}</button></div>
       {confirmDelete && <Dialog title={t('Delete wallet?')} close={() => setConfirmDelete(false)} busy={busy}>
-        <div className="form"><span className="empty-icon"><Trash2 size={24} /></span>
+        <div className="form"><span className="empty-icon empty-icon--bare"><Trash2 size={40} /></span>
           <p className="dialog-intro dialog-intro--center">{t('Are you sure you want to delete your wallet from Still Wallet on this device? You can only get it back with your recovery phrase.')}</p>
           <div className="two-actions"><button type="button" className="button primary" onClick={() => setConfirmDelete(false)} disabled={busy} autoFocus>{t('Cancel')}</button><button type="button" className="button secondary" onClick={async () => { if (!(await reset())) setConfirmDelete(false) }} disabled={busy}><span key={String(busy)} className="label-swap">{busy ? t('Deleting…') : t('Delete wallet')}</span></button></div>
         </div>
@@ -867,7 +898,7 @@ function WalletSwitcher({ wallets, active, warm, close, select, add, addPhrase, 
       if (ok) cancel()
     }
     return <Dialog title={t('Delete wallet?')} step="delete" close={close} busy={busy}>
-      <form className="form" autoComplete="off" onSubmit={(event) => { event.preventDefault(); void confirm() }}><span className="empty-icon"><Trash2 size={24} /></span>
+      <form className="form" autoComplete="off" onSubmit={(event) => { event.preventDefault(); void confirm() }}><span className="empty-icon empty-icon--bare"><Trash2 size={40} /></span>
         <p className="dialog-intro dialog-intro--center">{ownPhrase
           ? t('This removes {name} and its own recovery phrase from this device. Make sure that phrase is written down, or its coins are lost.', { name: removing.name })
           : t('This removes {name} from Still Wallet on this device. Its coins stay safe on your recovery phrase.', { name: removing.name })}</p>
@@ -911,64 +942,44 @@ function WalletSwitcher({ wallets, active, warm, close, select, add, addPhrase, 
 
 const walletSteps = ['list', 'manage']
 
-/** "Add wallet" opens a small menu: another wallet on the same phrase, or one with its own phrase. */
+/** "Add wallet" opens its two choices right above it, inside the sheet: another wallet on the same phrase, or one with its own phrase. */
 function AddWalletMenu({ create, importPhrase }: { create: () => void; importPhrase: () => void }) {
   const [open, setOpen] = useState(false)
-  const [place, setPlace] = useState<CSSProperties>()
-  const [up, setUp] = useState(false)
-  // Kept mounted for the close animation.
-  const [shown, setShown] = useState(false)
-  useEffect(() => {
-    if (open) { setShown(true); return }
-    const timer = window.setTimeout(() => setShown(false), 160)
-    return () => window.clearTimeout(timer)
-  }, [open])
   const button = useRef<HTMLButtonElement>(null)
-  const float = useRef<HTMLDivElement>(null)
-  const list = useRef<HTMLUListElement>(null)
-
-  useLayoutEffect(() => {
-    if (!open || !button.current) return
-    const rect = button.current.getBoundingClientRect()
-    const height = list.current?.offsetHeight ?? 112
-    const below = window.innerHeight - rect.bottom - 14 >= height
-    setUp(!below)
-    setPlace({ position: 'fixed', ...(below ? { top: rect.bottom + 6 } : { bottom: window.innerHeight - rect.top + 6 }), left: rect.left, width: rect.width })
-  }, [open])
+  const choices = useRef<HTMLDivElement>(null)
+  // The label only fades once the button was used, not when the sheet opens.
+  const toggled = useRef(false)
 
   useEffect(() => {
     if (!open) return
-    const outside = (event: PointerEvent) => { const target = event.target as Node; if (!button.current?.contains(target) && !float.current?.contains(target)) setOpen(false) }
-    const dismiss = () => setOpen(false)
+    // A tap anywhere else in the sheet folds the choices back into the button.
+    const outside = (event: PointerEvent) => { const target = event.target as Node; if (!button.current?.contains(target) && !choices.current?.contains(target)) setOpen(false) }
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setOpen(false); button.current?.focus({ preventScroll: true }) } }
     document.addEventListener('pointerdown', outside)
-    window.addEventListener('scroll', dismiss, true)
-    window.addEventListener('resize', dismiss)
     document.addEventListener('keydown', escape, true)
     return () => {
       document.removeEventListener('pointerdown', outside)
-      window.removeEventListener('scroll', dismiss, true)
-      window.removeEventListener('resize', dismiss)
       document.removeEventListener('keydown', escape, true)
     }
   }, [open])
 
   const items = [
-    { label: t('Create new wallet'), icon: <Plus size={18} />, run: create },
-    { label: t('Add seed phrase'), icon: <KeyRound size={18} />, run: importPhrase },
+    { label: t('Create new wallet'), icon: <Plus size={22} />, run: create },
+    { label: t('Add seed phrase'), icon: <KeyRound size={21} />, run: importPhrase },
   ]
   const choose = (run: () => void) => { setOpen(false); run() }
 
   return <>
-    <button ref={button} type="button" className="button secondary wide" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}><Plus size={17} /> {t('Add wallet')}</button>
-    {(open || shown) && createPortal(<div ref={float} className={`picker-float add-wallet-menu${up ? ' add-wallet-menu--up' : ''}${open ? '' : ' closing'}`} inert={!open} style={place ?? { position: 'fixed', visibility: 'hidden' }}>
-      <ul ref={list} className="picker-list" role="menu" aria-label={t('Add wallet')}>
-        {items.map((item) => <li key={item.label} role="menuitem" tabIndex={0} onClick={() => choose(item.run)}
-          onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); choose(item.run) } }}>
-          {item.icon}<span className="picker-text"><strong>{item.label}</strong></span>
-        </li>)}
-      </ul>
-    </div>, button.current?.closest('dialog') ?? document.body)}
+    <Slot open={open} className="add-wallet-slot">
+      <div ref={choices} id="add-wallet-choices" className="add-wallet-choices" role="group" aria-label={t('Add wallet')}>
+        {items.map((item) => <button key={item.label} type="button" className="choice" onClick={() => choose(item.run)}>
+          <span className="choice-icon">{item.icon}</span><span><strong>{item.label}</strong></span><ChevronRight size={18} />
+        </button>)}
+      </div>
+    </Slot>
+    <button ref={button} type="button" className="button secondary wide" aria-expanded={open} aria-controls="add-wallet-choices" onClick={() => { toggled.current = true; setOpen((value) => !value) }}>
+      <span key={String(open)} className={`label-swap ${toggled.current ? 'label-fade' : 'label-still'}`}>{open ? <><X size={17} />{t('Cancel')}</> : <><Plus size={17} />{t('Add wallet')}</>}</span>
+    </button>
   </>
 }
 

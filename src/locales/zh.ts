@@ -423,7 +423,7 @@ const dictionary: Record<string, string> = {
   "Expired": "已过期",
   "Main developer": "主要开发者",
   "Tester": "测试者",
-  "Donor": "捐助者",
+  "Donator": "捐助者",
   "Token list": "代币列表",
   "Prices and charts": "价格和图表",
   "Solana network": "Solana 网络",
