@@ -227,6 +227,8 @@ test('market data uses canonical cache keys and rejects unsupported inputs', asy
   assert.equal(marketRequests, 1)
   assert.equal((await fetch(origin + '/api/market/prices?currency=invalid')).status, 400)
   assert.equal((await fetch(origin + '/api/market/history/bitcoin?currency=usd&days=10000')).status, 400)
+  assert.equal((await fetch(origin + '/api/market/ohlc/bitcoin?currency=usd&days=10000')).status, 400)
+  assert.equal((await fetch(origin + '/api/market/ohlc/notacoin?currency=usd&days=365')).status, 400)
 })
 
 test('signs and confirms native EVM sends across all four networks', async () => {
@@ -347,4 +349,87 @@ test('stores activity encrypted and moves old plain history into the encrypted f
   assert.equal((await loadActivity('w', source.activityKey)).length, 200)
   const stranger = await accountSession({ vault: 'other', root: newPhrase() }, 0)
   assert.deepEqual(await loadActivity('w', stranger.activityKey), [])
+})
+
+test('app signing: Solana messages must be text, risky EVM calls and typed data are called out', async () => {
+  const { appendTransactionMessageInstruction, compileTransaction, createNoopSigner, createTransactionMessage, getBase64EncodedWireTransaction, pipe, setTransactionMessageFeePayer, setTransactionMessageLifetimeUsingBlockhash } = await import('@solana/kit')
+  const { getTransferSolInstruction } = await import('@solana-program/system')
+  const { getApproveInstruction } = await import('@solana-program/token')
+  const { base58 } = await import('@scure/base')
+  const dapps = await import('../src/dapps.ts')
+  const signer = await solanaKeypair(source.mnemonic, 0)
+  const lifetime = { blockhash: '11111111111111111111111111111111', lastValidBlockHeight: 1n }
+  const build = (instruction) => compileTransaction(pipe(createTransactionMessage({ version: 0 }), (message) => setTransactionMessageFeePayer(signer.address, message),
+    (message) => setTransactionMessageLifetimeUsingBlockhash(lifetime, message), (message) => appendTransactionMessageInstruction(instruction, message)))
+  const transfer = build(getTransferSolInstruction({ source: createNoopSigner(signer.address), destination: recipient.addresses.solana, amount: 1n }))
+  assert.throws(() => dapps.solanaMessage({ message: base58.encode(new Uint8Array(transfer.messageBytes)) }), /hidden transaction/)
+  assert.equal(dapps.solanaMessage({ message: base58.encode(new TextEncoder().encode('Sign in to example.com\nNonce: 1')) }).text, 'Sign in to example.com\nNonce: 1')
+  await assert.rejects(dapps.signSolanaMessage(source, { message: base58.encode(new Uint8Array(transfer.messageBytes)) }), /hidden transaction/)
+
+  const approve = build(getApproveInstruction({ source: recipient.addresses.solana, delegate: recipient.addresses.solana, owner: createNoopSigner(signer.address), amount: 5n }))
+  const solana = (calls) => async (_url, init) => {
+    const { method } = JSON.parse(init.body)
+    calls.push(method)
+    const value = method === 'getBalance' ? { value: 1_000_000 } : method === 'getTokenAccountsByOwner' ? { value: [] }
+      : { value: { err: null, accounts: [{ lamports: 995_000, owner: '11111111111111111111111111111111', data: ['', 'base64'] }] } }
+    return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: value }))
+  }
+  const realFetch = globalThis.fetch
+  const calls = []
+  globalThis.fetch = solana(calls)
+  try {
+    const plain = await dapps.previewSolana(signer.address, 'https://rpc.test/', [getBase64EncodedWireTransaction(transfer)], AbortSignal.timeout(5000))
+    assert.equal(plain.change, -5000n)
+    assert.equal(plain.approve, false)
+    const both = await dapps.previewSolana(signer.address, 'https://rpc.test/', [getBase64EncodedWireTransaction(transfer), getBase64EncodedWireTransaction(approve)], AbortSignal.timeout(5000))
+    assert.equal(both.approve, true)
+    assert.equal(calls.filter((name) => name === 'simulateTransaction').length, 3)
+  } finally { globalThis.fetch = realFetch }
+
+  const usdc = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'
+  const pad = (value) => value.toString(16).padStart(64, '0')
+  const spender = '0'.repeat(24) + 'ab'.repeat(20)
+  const increase = dapps.describeCall({ from: source.addresses.ethereum, to: usdc, data: `0x39509351${spender}${pad(2n ** 256n - 1n)}` }, 1)
+  assert.equal(increase.kind, 'approve')
+  assert.equal(increase.amount, 'Unlimited')
+  const permit2 = dapps.describeCall({ from: source.addresses.ethereum, to: '0x000000000022D473030F116dDEE9F6B43aC78BA3', data: `0x87517c45${'0'.repeat(24)}${usdc.slice(2).toLowerCase()}${spender}${pad(2n ** 160n - 1n)}${pad(0)}` }, 1)
+  assert.equal(permit2.kind, 'approve')
+  assert.equal(permit2.token, 'USDC')
+  assert.equal(permit2.amount, 'Unlimited')
+  const nft = dapps.describeCall({ from: source.addresses.ethereum, to: '0x' + '12'.repeat(20), data: `0x42842e0e${spender}${spender}${pad(7n)}` }, 1)
+  assert.deepEqual([nft.kind, nft.amount], ['transfer', '#7'])
+  const odd = dapps.describeCall({ from: source.addresses.ethereum, to: usdc, data: '0xdeadbeef' }, 1)
+  assert.deepEqual([odd.kind, odd.selector, odd.onToken], ['call', '0xdeadbeef', true])
+
+  const order = { domain: { name: 'Seaport', chainId: 1 }, primaryType: 'OrderComponents', types: { OrderComponents: [{ name: 'offerer', type: 'address' }, { name: 'offer', type: 'OfferItem[]' }] }, message: {} }
+  assert.equal(dapps.grantsRights(order), true)
+  assert.throws(() => dapps.checkTypedChain(order, 8453), /different network/)
+  assert.doesNotThrow(() => dapps.checkTypedChain(order, 1))
+})
+
+test('keeps token lists and Home layouts encrypted and moves old plain ones over', async () => {
+  const store = new Map()
+  globalThis.localStorage = { getItem: (key) => store.get(key) ?? null, setItem: (key, value) => store.set(key, String(value)), removeItem: (key) => store.delete(key) }
+  globalThis.document ??= { documentElement: { dataset: { layout: 'phone' } } }
+  const { forgetWalletData, openWalletData, readAssetLayout, readUserTokens, saveUserTokens, walletDataSaved } = await import('../src/storage.ts')
+  const token = { network: 'ethereum-main', contract: '0x' + '11'.repeat(20), symbol: 'SECRET', name: 'Secret', decimals: 18, user: 'found', verified: false }
+  store.set('still.tokens.v1.w', JSON.stringify([token]))
+  store.set('still.assets.v1.w', JSON.stringify({ order: ['ethereum-main:0x' + '11'.repeat(20)], shown: [] }))
+  await openWalletData('w', source.activityKey)
+  assert.deepEqual(readUserTokens('w'), [token])
+  assert.deepEqual(readAssetLayout('w', { order: [], shown: [] }).order, ['ethereum-main:0x' + '11'.repeat(20)])
+  await walletDataSaved()
+  assert.ok(!store.get('still.tokens.v1.w').includes('SECRET'))
+  assert.ok(!store.has('still.assets.v1.w'))
+  assert.ok(![...store.values()].some((value) => value.includes('11'.repeat(20))))
+  saveUserTokens('w', [token, { ...token, contract: '0x' + '22'.repeat(20), symbol: 'MORE' }])
+  await walletDataSaved()
+  forgetWalletData()
+  assert.deepEqual(readUserTokens('w'), [])
+  await openWalletData('w', source.activityKey)
+  assert.deepEqual(readUserTokens('w').map((entry) => entry.symbol), ['SECRET', 'MORE'])
+  forgetWalletData()
+  const stranger = await accountSession({ vault: 'other', root: newPhrase() }, 0)
+  await openWalletData('w', stranger.activityKey)
+  assert.deepEqual(readUserTokens('w'), [])
 })

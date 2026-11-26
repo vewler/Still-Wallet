@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { activeNetworks, defaultEndpoint, networks, tokenExplorers, type Network, type NetworkId } from './networks'
 import { contractKey, setUserTokens, tokens, tokensFor, userTokenId, type UserToken } from './tokens'
 import { defaultLayout, type AssetLayout } from './assets'
-import { VAULT_KEY, activitySaved, forgetActivity, loadActivity, readActivity, readAssetLayout, readUserTokens, saveAssetLayout, saveUserTokens, savedVaultId, saveAccounts, forgetWallet, nextAccount, nextOwnPhraseSlot, saveWalletEmoji, saveWalletName, walletEmoji, walletIds, walletName, readPreferences, saveActivity, savePreferences, forgetContacts, loadContacts, saveContacts, type ActivityItem, type Contact, type Preferences } from './storage'
+import { VAULT_KEY, activitySaved, forgetActivity, forgetWalletData, openWalletData, loadActivity, readActivity, readAssetLayout, readUserTokens, saveAssetLayout, saveUserTokens, savedVaultId, saveAccounts, forgetWallet, nextAccount, nextOwnPhraseSlot, saveWalletEmoji, saveWalletName, walletEmoji, walletIds, walletName, readPreferences, saveActivity, savePreferences, forgetContacts, loadContacts, saveContacts, type ActivityItem, type Contact, type Preferences } from './storage'
 import type { Session } from './vault'
 import { deriveSession, stopDeriving } from './derive'
 import type { Prices, Quote } from './rpc'
@@ -70,6 +70,7 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
     stopDeriving()
     setSwitching(undefined)
     forgetActivity()
+    forgetWalletData()
     forgetContacts()
     setContacts([])
     resetRequests()
@@ -131,6 +132,8 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
     resetRequests()
     setBalances({})
     setTokenBalances({})
+    await openWalletData(value.id, value.activityKey).catch(() => {})
+    if (active.current !== value) return
     applyTokens(readUserTokens(value.id))
     if (currentPreferences.current.offline) return
     preloaded.current = value
@@ -155,6 +158,13 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
     setName(walletName(value.id))
     setItems([])
     applyTokens(readUserTokens(value.id))
+    // Token lists and Home layouts are encrypted: already open after unlock, a quick decrypt on switch.
+    const opened = openWalletData(value.id, value.activityKey).catch(() => {}).then(() => {
+      if (active.current !== value) return false
+      applyTokens(readUserTokens(value.id))
+      setLayout(readAssetLayout(value.id, defaultLayout))
+      return true
+    })
     void loadActivity(value.id, value.activityKey).then((items) => { if (active.current === value) setItems(items) }, () => {})
     void loadContacts(value.vault, value.activityKey).then((items) => { if (active.current === value) setContacts(items) }, () => {})
     setLayout(readAssetLayout(value.id, defaultLayout))
@@ -164,8 +174,8 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
     const last = seen.current.get(value.id)
     setBalances(last?.balances ?? {})
     setTokenBalances(last?.tokens ?? {})
-    // Load balances right after unlock/switch.
-    if (!currentPreferences.current.offline) void refresh('balances', true)
+    // Load balances right after unlock/switch, once the token list is open.
+    if (!currentPreferences.current.offline) void opened.then((current) => { if (current) void refresh('balances', true) })
   }
 
   /** Save shown coins and their order. */
@@ -373,6 +383,8 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
     const next = { ...previous, ...change }
     try { savePreferences(next) } catch { notify('This browser could not save your preferences.'); return false }
     currentPreferences.current = next
+    // Pausing network requests stops the XMR scan too.
+    if (change.offline && !previous.offline && moneroUsed) void import('./moneroWallet').then((xmr) => xmr.closeMonero())
     if (change.environment || change.rpc || change.offline !== undefined) {
       seen.current.clear()
       resetRequests()
@@ -459,7 +471,9 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
       if (!signal.aborted && currentPreferences.current.currency === currency) {
         setPrices(next.prices)
         setChanges(next.changes)
-        try { localStorage.setItem(PRICE_CACHE, JSON.stringify({ currency, ...next })) } catch { /* Live prices still show. */ }
+        // Imported tokens are left out: their price ids name the contracts the wallet holds.
+        const general = (list: Prices) => Object.fromEntries(Object.entries(list).filter(([id]) => !id.startsWith('contract:')))
+        try { localStorage.setItem(PRICE_CACHE, JSON.stringify({ currency, prices: general(next.prices), changes: general(next.changes) })) } catch { /* Live prices still show. */ }
       }
     } catch { /* Fiat values fall back to token amounts. */ }
   }
@@ -492,7 +506,7 @@ export function useWallet(close: () => void, notify: (message: string) => void) 
 
   function prepareSwap(network: Network, sell: string, buy: string, amount: string, signal: AbortSignal, slippage?: number) {
     return prepareQuote(network, signal, async (endpoint, wallet, request) =>
-      (await import('./swap')).quoteSwap(network, endpoint, wallet.addresses.ethereum, sell, buy, amount, request, slippage))
+      (await import('./swap')).quoteSwap(network, endpoint, wallet.addresses.ethereum, sell, buy, amount, request, slippage, prices))
   }
 
   /** Swap between any two coins. Same-network swaps on Ethereum/Base use Uniswap, everything else NEAR Intents. */

@@ -7,6 +7,7 @@ import { Coin, TokenIcon } from './Icons'
 import { Heading } from './Pages'
 import { ManageCoins } from './Manage'
 import { t } from '../i18n'
+import type { Candle } from '../rpc'
 
 const ranges = [['1', '24h'], ['7', '7d'], ['30', '30d'], ['365', '1y']] as const
 type Days = typeof ranges[number][0]
@@ -352,11 +353,47 @@ export function CrossFade({ id, children, ms = 63 }: { id: string; children: Rea
   </span>
 }
 
-// Assumes evenly spaced points ending now (true for market_chart).
+// The range ends now. Each label sits in the middle of its column, so it shows the date at that spot.
 function axisLabels(days: Days) {
   const span = Number(days) * 86_400_000, now = Date.now()
   const format = days === '1' ? { hour: 'numeric' } as const : days === '365' ? { month: 'short' } as const : { month: 'short', day: 'numeric' } as const
-  return Array.from({ length: 5 }, (_, index) => new Date(now - span + span * index / 4).toLocaleString('en-US', format))
+  return Array.from({ length: 5 }, (_, index) => new Date(now - span + span * (index + .5) / 5).toLocaleString('en-US', format))
+}
+
+// Real candles, kept in memory per coin/range/currency.
+const ohlcCache = new Map<string, { candles: Candle[]; at: number }>()
+const ohlcPending = new Map<string, Promise<Candle[]>>()
+function loadOhlc(asset: Asset, days: Days, currency: string) {
+  const key = `${asset.priceId}:${days}:${currency}`
+  const hit = ohlcCache.get(key)
+  if (hit && Date.now() - hit.at < ttl[days]) return Promise.resolve(hit.candles)
+  let request = ohlcPending.get(key)
+  if (!request) {
+    const start = Date.now() - Number(days) * 86_400_000
+    request = withRetry(() => import('../rpc').then(({ getOhlc }) => getOhlc(asset.priceId, currency, Number(days), new AbortController().signal)))
+      .then((rows) => {
+        // Rows are stamped at their close. Drop a first candle that opened before the range.
+        const step = rows.length > 1 ? rows[1].time - rows[0].time : 0
+        const candles = rows.filter((row) => row.time - step >= start - 60_000)
+        if (candles.length < 2) throw new Error('No candles')
+        ohlcCache.set(key, { candles, at: Date.now() })
+        return candles
+      })
+      .finally(() => ohlcPending.delete(key))
+    ohlcPending.set(key, request)
+  }
+  return request
+}
+
+function useOhlc(asset: Asset, days: Days, currency: string) {
+  const key = `${asset.priceId}:${days}:${currency}`
+  const [state, setState] = useState<{ key: string; candles: Candle[] }>()
+  useEffect(() => {
+    let current = true
+    loadOhlc(asset, days, currency).then((candles) => { if (current) setState({ key, candles }) }).catch(() => undefined)
+    return () => { current = false }
+  }, [key])
+  return state?.key === key ? state.candles : undefined
 }
 
 /** Full chart for one coin: range + line/candles. */
@@ -364,6 +401,7 @@ function ChartView({ asset, days: startDays, currency, close }: { asset: Asset; 
   const [days, setDays] = useState<Days>(startDays)
   const [kind, setKind] = useState<Kind>(lastKind)
   const [fresh, retry] = useHistory(asset, days, currency)
+  const ohlc = useOhlc(asset, days, currency)
   // Keep the previous range while loading so it morphs.
   const good = useRef<History | undefined>(undefined)
   if (fresh && fresh !== 'error') good.current = fresh
@@ -371,6 +409,11 @@ function ChartView({ asset, days: startDays, currency, close }: { asset: Asset; 
   const change = history && history !== 'error' ? changeOf(history) : undefined
   const up = (change ?? 0) >= 0
   const label = ranges.find(([value]) => value === days)![1]
+  // High/low: real intraday highs and lows from the candles, the line only has sampled prices.
+  const points = history && history !== 'error' ? history.points : []
+  const high = Math.max(...points, ...(ohlc ?? []).map((candle) => candle.high))
+  const low = Math.min(...points, ...(ohlc ?? []).map((candle) => candle.low))
+  const candles = ohlc ? groupCandles(ohlc, candleCount[days]) : toCandles(points, candleCount[days])
 
   return <Dialog title={`${asset.name} · ${asset.symbol}`} close={close}>
     <div className="chart-view">
@@ -382,13 +425,13 @@ function ChartView({ asset, days: startDays, currency, close }: { asset: Asset; 
         {history === 'error' ? <p className="chart-empty">{t('Chart unavailable right now.')} <button type="button" className="text-link" onClick={retry}>{t('Try again')}</button></p>
           : !history ? <div className="chart-loading" aria-label={t('Loading chart')} />
           : kind === 'line' ? <MorphLine points={history.points} up={up} label={t('{name} price over {range}', { name: asset.name, range: t(label) })} />
-          : <Candles points={history.points} count={candleCount[days]} label={t('{name} candles over {range}', { name: asset.name, range: t(label) })} />}
+          : <Candles candles={candles} label={t('{name} candles over {range}', { name: asset.name, range: t(label) })} />}
         {history && history !== 'error' ? <CrossFade id={days}><div className="chart-axis" aria-hidden="true">{axisLabels(days).map((text, index) => <span key={index}>{text}</span>)}</div></CrossFade>
           : <div className="chart-axis" aria-hidden="true" />}
       </div>
       <dl className="chart-view-stats">
-        <div><dt>{t('High')}</dt><dd>{history && history !== 'error' ? <Rolling value={Math.max(...history.points)} format={(value) => money(value, currency)} /> : '—'}</dd></div>
-        <div><dt>{t('Low')}</dt><dd>{history && history !== 'error' ? <Rolling value={Math.min(...history.points)} format={(value) => money(value, currency)} /> : '—'}</dd></div>
+        <div><dt>{t('High')}</dt><dd>{history && history !== 'error' ? <Rolling value={high} format={(value) => money(value, currency)} /> : '—'}</dd></div>
+        <div><dt>{t('Low')}</dt><dd>{history && history !== 'error' ? <Rolling value={low} format={(value) => money(value, currency)} /> : '—'}</dd></div>
       </dl>
       <div className="chart-view-controls">
         <Toggle className="charts-range" label={t('Time range')} options={ranges} value={days} set={setDays} />
@@ -398,11 +441,23 @@ function ChartView({ asset, days: startDays, currency, close }: { asset: Asset; 
   </Dialog>
 }
 
-// Candles are bucketed from the line points, not real OHLC. Use /ohlc if exact wicks ever matter.
-const candleCount: Record<Days, number> = { '1': 24, '7': 28, '30': 30, '365': 52 }
+// About this many candles per range: 24h hourly, 7d 4h, 30d daily, 1y ~8 days (CoinGecko's 4 day candles, paired).
+const candleCount: Record<Days, number> = { '1': 24, '7': 42, '30': 30, '365': 46 }
+type Ohlc = { open: number; close: number; high: number; low: number }
+/** Merges real candles into bigger ones, newest candle stays the live one. */
+export function groupCandles(rows: Ohlc[], count: number) {
+  const size = Math.max(1, Math.round(rows.length / count))
+  const candles: Ohlc[] = []
+  for (let end = rows.length; end > 0; end -= size) {
+    const slice = rows.slice(Math.max(0, end - size), end)
+    candles.unshift({ open: slice[0].open, close: slice[slice.length - 1].close, high: Math.max(...slice.map((row) => row.high)), low: Math.min(...slice.map((row) => row.low)) })
+  }
+  return candles
+}
+/** Fallback while real candles load or if they fail: buckets of the line points. */
 export function toCandles(points: number[], count: number) {
   const size = Math.max(1, Math.ceil((points.length - 1) / count))
-  const candles: { open: number; close: number; high: number; low: number }[] = []
+  const candles: Ohlc[] = []
   // Each bucket opens at the previous close.
   for (let start = 0; start < points.length - 1; start += size) {
     const slice = points.slice(start, Math.min(points.length, start + size + 1))
@@ -414,11 +469,10 @@ export function toCandles(points: number[], count: number) {
 type Shape = { x: number; w: number; open: number; close: number; high: number; low: number }
 
 /** Candles ease from their old position/width/prices on a range change. */
-function Candles({ points, count, label }: { points: number[]; count: number; label: string }) {
+function Candles({ candles: raw, label }: { candles: Ohlc[]; label: string }) {
   const width = 320, height = 110
-  const min = Math.min(...points), span = Math.max(...points) - min || 1
+  const min = Math.min(...raw.map((candle) => candle.low)), span = Math.max(...raw.map((candle) => candle.high)) - min || 1
   const unit = (value: number) => (value - min) / span
-  const raw = toCandles(points, count)
   const target: Shape[] = raw.map((candle, index) => ({ x: (index + .5) / raw.length, w: 1 / raw.length, open: unit(candle.open), close: unit(candle.close), high: unit(candle.high), low: unit(candle.low) }))
   const [shapes, setShapes] = useState(target)
   const current = useRef(target)

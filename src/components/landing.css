@@ -20,12 +20,12 @@
 .landing-header {
   position: sticky; top: 0; z-index: 10;
   padding-top: env(safe-area-inset-top);
-  background: color-mix(in srgb, #050505 72%, transparent);
-  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  background: color-mix(in srgb, #050505 52%, transparent);
+  backdrop-filter: saturate(180%) blur(16px);
   border-bottom: 1px solid transparent;
   transition: background .3s, border-color .3s, box-shadow .3s;
 }
-.landing-header.is-scrolled { background: #050505; border-color: #ffffff12; box-shadow: 0 10px 40px #0008; }
+.landing-header.is-scrolled { background: color-mix(in srgb, #050505 60%, transparent); border-color: #ffffff12; box-shadow: 0 10px 40px #0008; }
 .landing-header-inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 72px; }
 .landing-brand { display: inline-flex; align-items: center; min-height: 44px; }
 .landing-brand img { width: 30px; height: 30px; }

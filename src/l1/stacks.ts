@@ -48,7 +48,9 @@ export function stacksDecode(address: string) {
     if (value[0] === 'S' && (version === 22 || version === 20) && !value.includes('.')) {
       const bytes = c32decode(value.slice(2))
       const hash = bytes.subarray(-24, -4)
-      if (bytes.length >= 24 && checksum(version, hash).every((byte, index) => byte === bytes[bytes.length - 4 + index])) return { version, hash }
+      // Re-encoding must give the same text, so mistyped addresses with stray high bits are rejected.
+      if (bytes.length >= 24 && checksum(version, hash).every((byte, index) => byte === bytes[bytes.length - 4 + index])
+        && 'S' + c32[version] + c32encode(concat(hash, checksum(version, hash))) === value) return { version, hash }
     }
   } catch { /* Fall through. */ }
   throw new Error('Enter a valid Stacks address (SP…).')

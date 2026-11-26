@@ -121,7 +121,8 @@ export async function quoteTezos(network: Network, endpoint: string, from: strin
         sameWallet(from, tezosAddress(publicKey))
         const { signed, hash } = tezosSign(header.hash!, draft(revealFee, sendFee, publicKey), key)
         const last = reveal ? next + 1n : next
-        return { hash, from, lastLedgerSequence: Number(last), async broadcast() {
+        // lastValidBlockHeight keeps the level the operation's branch points at, it can only land after it.
+        return { hash, from, lastLedgerSequence: Number(last), lastValidBlockHeight: header.level, async broadcast() {
           const reply = await rest<string>(endpoint, '/injection/operation', fetcher, JSON.stringify(signed))
           if (reply !== hash) throw new Error('Tezos rejected the transfer.')
         } }
@@ -133,6 +134,26 @@ export async function quoteTezos(network: Network, endpoint: string, from: strin
 export async function tezosStatus(item: ActivityItem, endpoint: string, fetcher: Fetcher): Promise<ActivityItem['status']> {
   if (!item.from || !item.lastLedgerSequence) return item.status
   const counter = await rest<string>(endpoint, `${head}/context/contracts/${item.from}/counter`, fetcher)
-  if (counter !== undefined && BigInt(counter) >= BigInt(item.lastLedgerSequence)) return 'confirmed'
-  return Date.now() - item.created > 30 * 60_000 ? 'expired' : item.status
+  const used = counter !== undefined && BigInt(counter) >= BigInt(item.lastLedgerSequence)
+  // Sent before Still kept the level: the counter is all there is to go on.
+  if (item.lastValidBlockHeight === undefined) return used ? 'confirmed' : Date.now() - item.created > 30 * 60_000 ? 'expired' : item.status
+  if (!used) return Date.now() - item.created > 30 * 60_000 ? 'expired' : item.status
+  // The counter moved, but that only means some operation used it: find this one and read its result.
+  const top = (await rest<{ level?: number }>(endpoint, `${head}/header`, fetcher))?.level
+  if (!top) return item.status
+  // Operations only stay valid for a few hundred blocks after their branch.
+  const last = Math.min(top, item.lastValidBlockHeight + 500)
+  for (let start = item.lastValidBlockHeight + 1; start <= last; start += 10) {
+    const levels = Array.from({ length: Math.min(10, last - start + 1) }, (_, index) => start + index)
+    const lists = await Promise.all(levels.map((level) => rest<string[]>(endpoint, `/chains/main/blocks/${level}/operation_hashes/3`, fetcher)))
+    for (const [index, list] of lists.entries()) {
+      const position = list?.indexOf(item.hash) ?? -1
+      if (position < 0) continue
+      const operation = await rest<{ contents?: { metadata?: { operation_result?: { status?: string } } }[] }>(endpoint, `/chains/main/blocks/${levels[index]}/operations/3/${position}`, fetcher)
+      const results = (operation?.contents ?? []).map((content) => content.metadata?.operation_result?.status)
+      return results.length && results.every((status) => status === 'applied') ? 'confirmed' : 'failed'
+    }
+  }
+  // Another operation used the counter, so this one can never land.
+  return 'failed'
 }

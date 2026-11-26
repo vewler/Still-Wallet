@@ -57,19 +57,31 @@ export function NetworksPage({ preferences, layout, edit }: {
   const [health, setHealth] = useState<Partial<Record<string, Health>>>({})
   const [round, setRound] = useState(0)
 
-  // Ping each network's provider on open and on refresh.
+  // Ping the providers of the networks on screen, on open, on refresh and as search shows more.
+  const pinging = useRef<{ controller: AbortController; checked: Set<string> }>(null)
   useEffect(() => {
-    if (preferences.offline) return
-    const controller = new AbortController()
-    setHealth(Object.fromEntries(list.map((network) => [network.id, { state: 'checking' }])))
-    void import('../rpc').then(({ testEndpoint }) => list.forEach((network) => {
-      const start = performance.now()
-      testEndpoint(network, preferences.rpc[network.id] ?? defaultEndpoint(network), controller.signal)
-        .then(() => ({ state: 'ok', ms: Math.round(performance.now() - start) }) as const, () => ({ state: 'down' }) as const)
-        .then((result) => { if (!controller.signal.aborted) setHealth((current) => ({ ...current, [network.id]: result })) })
-    }))
-    return () => controller.abort()
+    const current = { controller: new AbortController(), checked: new Set<string>() }
+    pinging.current = current
+    setHealth({})
+    return () => current.controller.abort()
   }, [preferences.offline, preferences.rpc, round])
+  const shownKey = shownNetworks.map((network) => network.id).join(',')
+  useEffect(() => {
+    const current = pinging.current
+    if (preferences.offline || !current) return
+    const fresh = shownNetworks.filter((network) => !current.checked.has(network.id))
+    if (!fresh.length) return
+    fresh.forEach((network) => current.checked.add(network.id))
+    const { signal } = current.controller
+    setHealth((value) => ({ ...value, ...Object.fromEntries(fresh.map((network) => [network.id, { state: 'checking' }])) }))
+    void import('../rpc').then(({ testEndpoint }) => fresh.forEach((network) => {
+      const start = performance.now()
+      testEndpoint(network, preferences.rpc[network.id] ?? defaultEndpoint(network), signal)
+        .then(() => ({ state: 'ok', ms: Math.round(performance.now() - start) }) as const, () => ({ state: 'down' }) as const)
+        .then((result) => { if (!signal.aborted) setHealth((value) => ({ ...value, [network.id]: result })) })
+    }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownKey, preferences.offline, preferences.rpc, round])
 
   const checking = Object.values(health).some((entry) => entry?.state === 'checking')
   return <div className="page">
@@ -124,11 +136,11 @@ export function RpcDialog({ network, current, offline, close, save, test }: {
     const controller = new AbortController()
     request.current = controller
     try {
-      await test(network, endpoint.trim() ? validateEndpoint(endpoint.trim()) : defaultEndpoint(network), controller.signal)
+      await test(network, endpoint.trim() ? validateEndpoint(endpoint.trim(), network.chain) : defaultEndpoint(network), controller.signal)
       if (!controller.signal.aborted) setError('')
       if (!controller.signal.aborted) setResult(t('Connected to {network}.', { network: `${network.name} ${network.label}` }))
-    } catch {
-      if (!controller.signal.aborted) setError('Connection failed. Check the URL, browser CORS access, and network.')
+    } catch (problem) {
+      if (!controller.signal.aborted) setError(problem instanceof Error && problem.message.startsWith('Monero') ? problem.message : 'Connection failed. Check the URL, browser CORS access, and network.')
     } finally {
       if (!controller.signal.aborted) setTesting(false)
     }
@@ -136,8 +148,8 @@ export function RpcDialog({ network, current, offline, close, save, test }: {
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    try { save(endpoint.trim() ? validateEndpoint(endpoint.trim()) : undefined) }
-    catch { setError('Enter a valid HTTPS RPC URL or a local HTTP endpoint.') }
+    try { save(endpoint.trim() ? validateEndpoint(endpoint.trim(), network.chain) : undefined) }
+    catch (problem) { setError(problem instanceof Error && problem.message.startsWith('Monero') ? problem.message : 'Enter a valid HTTPS RPC URL or a local HTTP endpoint.') }
   }
 
   return <Dialog title={`${network.name} RPC`} close={close}>

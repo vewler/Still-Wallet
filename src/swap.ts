@@ -1,6 +1,6 @@
 import { encodeFunctionData, erc20Abi, getAddress, parseAbi } from 'viem'
 import { addressFor, crossNetworks, formatAmount, networks, parseAmount, type Addresses, type Network, type NetworkId } from './networks'
-import { evmClient, quoteEvm, type Quote } from './rpc'
+import { evmClient, quoteEvm, type Prices, type Quote } from './rpc'
 import { validCustomSlippage } from './storage'
 import { tokenById } from './tokens'
 
@@ -22,7 +22,7 @@ export const slippageOptions = [0, 50, 100, 200, 300]
 const stablecoins = ['USDC', 'USDT', 'DAI']
 
 /** `slippage` is in basis points (100 = 1%); 0 means Auto. */
-export async function quoteSwap(network: Network, endpoint: string, owner: string, sellId: string, buyId: string, amount: string, signal: AbortSignal, slippage = 0) {
+export async function quoteSwap(network: Network, endpoint: string, owner: string, sellId: string, buyId: string, amount: string, signal: AbortSignal, slippage = 0, prices: Prices = {}) {
   if (!slippageOptions.includes(slippage) && !validCustomSlippage(slippage)) throw new Error('Choose a supported slippage.')
   if (!swapNetworks.includes(network.id as SwapNetwork)) throw new Error('Select Ethereum or Base to swap.')
   const { router, weth } = deployments[network.id as SwapNetwork]
@@ -52,6 +52,11 @@ export async function quoteSwap(network: Network, endpoint: string, owner: strin
   const probe = input / 1_000n || 1n
   const spot = await client.readContract({ address: router, abi: routerAbi, functionName: 'getAmountsOut', args: [probe, best.path] }).then((amounts) => amounts.at(-1) ?? 0n, () => 0n)
   const impact = spot > 0n ? Math.max(0, 1 - Number(best.output * probe * 10_000n / (spot * input)) / 10_000) : undefined
+  // The pool itself can be thin or off, so also compare with market prices: how much less this gets than the market rate.
+  const sellPrice = prices[sell?.priceId ?? network.priceId]
+  const buyPrice = prices[buy?.priceId ?? network.priceId]
+  const sellValue = sellPrice ? Number(formatAmount(input, sell?.decimals ?? network.decimals)) * sellPrice : 0
+  const market = sellValue > 0 && buyPrice ? 1 - Number(formatAmount(best.output, outputDecimals)) * buyPrice / sellValue : undefined
   // Auto: 0.5% for stable pairs, 1% normally, 2% when impact is 1% or more.
   const chosen = slippage || (sell && buy && stablecoins.includes(sell.symbol) && stablecoins.includes(buy.symbol) ? 50 : (impact ?? 0) >= .01 ? 200 : 100)
   const minimum = (best.output * BigInt(10_000 - chosen) + 9_999n) / 10_000n
@@ -75,7 +80,7 @@ export async function quoteSwap(network: Network, endpoint: string, owner: strin
     : encodeFunctionData({ abi: routerAbi, functionName: buy ? 'swapExactTokensForTokens' : 'swapExactTokensForETH', args: [input, ...args] })
   return quoteEvm(network, client, from, { to: router, value: sell ? 0n : input, data }, {
     to: router, value: display, asset: sell?.id, kind: 'swap',
-    receive: { amount: formatAmount(best.output, outputDecimals), minimum: formatAmount(minimum, outputDecimals), symbol: buy?.symbol ?? network.symbol, slippage: chosen, auto: !slippage, impact },
+    receive: { amount: formatAmount(best.output, outputDecimals), minimum: formatAmount(minimum, outputDecimals), symbol: buy?.symbol ?? network.symbol, slippage: chosen, auto: !slippage, impact, market, unchecked: market === undefined },
   })
 }
 

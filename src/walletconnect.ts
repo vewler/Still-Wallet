@@ -70,7 +70,15 @@ export function walletKit() {
     return kit
   })()
   client.catch(() => { client = undefined })
-  return client
+  return client.then(async (kit) => { await resumeApps(kit).catch(() => {}); return kit })
+}
+
+/** Paused network requests: close the relay connection until they're back on. */
+export function pauseApps() {
+  void client?.then((kit) => kit.core.relayer.transportClose()).catch(() => {})
+}
+async function resumeApps(kit: IWalletKit) {
+  if (kit.core.relayer.transportExplicitlyClosed) await kit.core.relayer.transportOpen()
 }
 
 /** Connect from a wc: link (pasted, scanned or opened from another app). */
@@ -145,4 +153,30 @@ export function sessionAccount(topic: string, chain: string) {
 /** Readable host for a dapp url, never trust the name alone. */
 export function hostOf(url: string) {
   try { return new URL(url).host } catch { return url }
+}
+
+/**
+ * Wallet deleted or erased: end every app session and drop WalletConnect's saved data,
+ * so the next wallet in this browser starts with no connected apps.
+ */
+export async function forgetApps() {
+  const loaded = client
+  client = undefined
+  prompts = []
+  sessions = []
+  markUsed(false)
+  emit()
+  const kit = loaded ? await loaded.catch(() => undefined) : undefined
+  if (kit) {
+    // The open client keeps its database busy, so it removes its own sessions and pairings.
+    const reason = { code: 6000, message: 'User disconnected.' }
+    const ending = Promise.allSettled([
+      ...Object.keys(kit.getActiveSessions()).map((topic) => kit.disconnectSession({ topic, reason })),
+      ...kit.core.pairing.getPairings().map((pairing) => kit.core.pairing.disconnect({ topic: pairing.topic })),
+    ])
+    await Promise.race([ending, new Promise((done) => setTimeout(done, 4000))])
+    return
+  }
+  try { for (const key of Object.keys(localStorage)) if (key.startsWith('wc@2')) localStorage.removeItem(key) } catch { /* Nothing saved. */ }
+  try { indexedDB.deleteDatabase('WALLET_CONNECT_V2_INDEXED_DB') } catch { /* Nothing saved. */ }
 }

@@ -174,7 +174,7 @@ export async function quoteCardano(network: Network, endpoint: string, from: str
       inputs.push(utxo)
       total += utxo.value
     }
-    if (total < value + fee) throw new Error('Insufficient ADA to cover the amount and network fee.')
+    if (total < value + fee) throw new Error(info.utxo_set?.some((utxo) => utxo.asset_list?.length) ? 'Insufficient ADA to cover the amount and network fee. Some of your ADA sits with tokens and can’t be sent on its own.' : 'Insufficient ADA to cover the amount and network fee.')
     const change = total - value - fee
     // Change too small for its own output goes to the fee.
     const paid = change >= minimumOutput ? fee : total - value
@@ -209,5 +209,7 @@ export async function quoteCardano(network: Network, endpoint: string, from: str
 export async function cardanoStatus(item: ActivityItem, endpoint: string, fetcher: Fetcher): Promise<ActivityItem['status']> {
   if (!/^[a-f\d]{64}$/.test(item.hash)) throw new Error('Invalid transaction ID.')
   const reply = await rest<{ num_confirmations?: number | null }[]>(endpoint, '/tx_status', fetcher, JSON.stringify({ _tx_hashes: [item.hash] }))
-  return reply?.[0]?.num_confirmations ? 'confirmed' : item.status
+  if (reply?.[0]?.num_confirmations) return 'confirmed'
+  // Sends are valid for 7200 slots (2 hours) after the quote, after that they can never land.
+  return Date.now() - item.created > 3 * 60 * 60_000 ? 'expired' : item.status
 }

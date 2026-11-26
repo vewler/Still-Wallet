@@ -14,6 +14,7 @@ import { priorityAssets, priorityNetworks } from '../assets'
 /** Priority tokens as symbols (USDC), for the token list of one network. Its own coin always counts. */
 const prioritySymbols = new Set(priorityAssets.flatMap((id) => tokenById(id)?.symbol ?? []))
 import { t } from '../i18n'
+import { copyText } from '../clipboard'
 
 function NetworkField({ networks, selected, change }: { networks: Network[]; selected: Network; change: (network: Network) => void }) {
   return <div className="field"><span>{t('Network')}</span>
@@ -58,7 +59,7 @@ export function Receive({ initial, initialAsset, networks, addresses, close }: {
       <Glide><p className="field-note">{selected.chain === 'xrp' ? t('Use the XRP Ledger. This wallet receives XRP without a destination tag. A new address needs the ledger’s current account reserve to activate.') : selected.chain === 'bitcoin' ? t('Send BTC on the Bitcoin network to this native SegWit (bc1) address.') : selected.chain === 'litecoin' ? t('Send LTC on the Litecoin network to this native SegWit (ltc1) address.') : selected.chain === 'dogecoin' ? t('Send DOGE on the Dogecoin network to this address.') : selected.chain === 'bitcoincash' ? t('Send BCH on the Bitcoin Cash network to this CashAddr address.') : selected.chain === 'dash' ? t('Send DASH on the Dash network to this address.') : selected.chain === 'zcash' ? t('Send ZEC to this transparent (t1) address. Shielded wallets can send here too, the coins arrive unshielded.') : selected.chain === 'kaspa' ? t('Send KAS on the Kaspa network to this address.') : selected.chain === 'tron' ? t('Use the Tron network (TRC-20 for tokens) to receive {symbol}. Sending tokens from Still needs some TRX for fees.', { symbol: tokenById(asset)?.symbol ?? 'TRX' }) : selected.chain === 'monero' ? t('Send XMR on the Monero network. Your view key scans new blocks on this device, incoming XMR shows after a refresh and unlocks after 10 blocks, about 20 minutes.') : t('Use {network} to receive {symbol}.', { network: `${selected.name} ${selected.label}`, symbol: tokenById(asset)?.symbol ?? selected.symbol })}</p></Glide>
       <button className="button primary wide" onClick={async () => {
         try {
-          await navigator.clipboard.writeText(address)
+          await copyText(address)
           setCopyResult({ network: selected.id, copied: true })
         } catch {
           setCopyResult({ network: selected.id, copied: false })
@@ -206,8 +207,12 @@ function TransactionDialog({ title, close, prepare, submit, finished, contactNam
   const [item, setItem] = useState<ActivityItem>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // A rate far below the market price takes a second tap.
+  const [sure, setSure] = useState(false)
   const request = useRef<AbortController | null>(null)
   useEffect(() => () => request.current?.abort(), [])
+  useEffect(() => setSure(false), [review])
+  const offMarket = (review?.receive?.market ?? 0) >= .1
 
   async function reviewTransfer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -236,6 +241,7 @@ function TransactionDialog({ title, close, prepare, submit, finished, contactNam
 
   async function confirm() {
     if (!review || busy) return
+    if (offMarket && !sure) { setSure(true); return }
     setBusy(true)
     try { setItem(await submit(review)) }
     catch (problem) {
@@ -273,9 +279,11 @@ function TransactionDialog({ title, close, prepare, submit, finished, contactNam
         {review.eta !== undefined && <div><dt>{t('Arrives in about')}</dt><dd>{review.eta < 90 ? t('1 minute') : t('{count} minutes', { count: Math.round(review.eta / 60) })}</dd></div>}
       </dl>
       <Notice>{approval ? review.value === '0' ? t('This clears the router’s current allowance. Confirm it before granting a new one.') : t('This lets Uniswap spend the amount shown. The swap requires a separate confirmation.') : swapping ? review.via ? t('Your coins go to a one-time deposit address and the swapped coins come back to this wallet. If the swap can’t fill at the minimum, it refunds to this wallet.') : t('The swap returns assets to this wallet. If the price falls below the minimum or the quote expires on-chain, the swap can fail and still cost gas.') : t('This is a mainnet transfer. Check the full address and network. Broadcast transfers cannot be recalled.')}</Notice>
+      {(review.receive?.market ?? 0) >= .03 ? <Notice error>{t('This rate is about {percent}% worse than the market price. Check the amount and coins before you swap.', { percent: Math.round(review.receive!.market! * 100) })}</Notice>
+        : review.receive?.unchecked && !review.via && <Notice>{t('Still can’t check this rate against the market price.')}</Notice>}
       {(review.receive?.impact ?? 0) >= .03 && <Notice error>{t('Big price hit: you get about {percent}% less than the current price. Try a smaller amount.', { percent: Math.round(review.receive!.impact! * 100) })}</Notice>}
       <ErrorSlot error={error} />
-      <button className="button primary wide" onClick={() => void confirm()} disabled={busy}>{busy ? t('Submitting transaction…') : approval ? review.value === '0' ? t('Clear allowance') : t('Approve spending') : swapping ? t('Sign and swap') : t('Sign and send')}</button>
+      <button className="button primary wide" onClick={() => void confirm()} disabled={busy}>{busy ? t('Submitting transaction…') : approval ? review.value === '0' ? t('Clear allowance') : t('Approve spending') : swapping ? offMarket && sure ? t('Tap again to swap') : t('Sign and swap') : t('Sign and send')}</button>
       <button className="button text-button wide" onClick={edit} disabled={busy}><ArrowLeft size={16} /> {title === 'Swap' ? t('Edit swap') : t('Edit transfer')}</button>
     </div> : <form className="form" onSubmit={reviewTransfer}>
       <fieldset className="form" disabled={busy}>{children}</fieldset>

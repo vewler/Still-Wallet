@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from 'react'
-import { ArrowLeft, ArrowRight, Check, ChevronRight, Download, LoaderCircle, LockKeyhole, ShieldAlert, Wallet, X } from 'lucide-react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { ArrowLeft, ArrowRight, Check, ChevronRight, Download, KeyRound, LoaderCircle, LockKeyhole, ShieldAlert, Trash2, Wallet, X } from 'lucide-react'
 import type { Session } from '../vault'
 import { passwordRules } from '../passwords'
 import { failedUnlocks, forgetVault, maxUnlockAttempts, saveFailedUnlocks, savedVaultId } from '../storage'
@@ -9,8 +9,8 @@ const vault = () => import('../vault')
 import { Dialog, ErrorSlot, PasswordInput } from './Dialog'
 import { t } from '../i18n'
 
-type AccessStep = 'choose' | 'create' | 'verify' | 'import' | 'password' | 'unlock' | 'done'
-const order: AccessStep[] = ['choose', 'create', 'import', 'verify', 'password', 'unlock', 'done']
+type AccessStep = 'choose' | 'create' | 'verify' | 'import' | 'password' | 'unlock' | 'forgot' | 'recover' | 'reset' | 'erase' | 'done'
+const order: AccessStep[] = ['choose', 'create', 'import', 'verify', 'password', 'unlock', 'forgot', 'recover', 'reset', 'erase', 'done']
 
 export function Access({ locked, protect, intent, close, onSession, erased }: {
   locked: boolean; protect: boolean; intent?: 'send' | 'receive' | 'swap'; close: () => void; onSession: (session: Session) => void
@@ -30,12 +30,33 @@ export function Access({ locked, protect, intent, close, onSession, erased }: {
   const [unlocked, setUnlocked] = useState(false)
   const [origin, setOrigin] = useState<'verify' | 'import'>('verify')
   const [back, setBack] = useState(false)
+  // Unlock <-> forgot works like the lock screen: no slide, blue button label fades, text drops in from above, buttons rise from below.
+  const [swapIn, setSwapIn] = useState(false)
+  const fadeLabel = useRef(false)
+  const fadeTitle = useRef(false)
+  useEffect(() => {
+    if (!swapIn) return
+    const timer = window.setTimeout(() => setSwapIn(false), 420)
+    return () => window.clearTimeout(timer)
+  }, [swapIn])
+  const swapTo = (next: 'unlock' | 'forgot' | 'recover') => {
+    fadeLabel.current = next !== 'forgot'
+    fadeTitle.current = true
+    setError('')
+    setPassword('')
+    setPhrase('')
+    setBack(false)
+    setSwapIn(true)
+    setStep(next)
+  }
 
   const changeStep = (next: AccessStep) => {
     setError('')
     setPassword('')
     setConfirmation('')
     setBack(order.indexOf(next) < order.indexOf(step))
+    setSwapIn(false)
+    fadeTitle.current = false
     setStep(next)
   }
 
@@ -44,6 +65,32 @@ export function Access({ locked, protect, intent, close, onSession, erased }: {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    fadeLabel.current = false
+    if (step === 'recover') {
+      setBusy(true)
+      try {
+        await (await vault()).checkRecoveryPhrase(phrase)
+        changeStep('reset')
+      } catch (problem) {
+        fail(problem instanceof Error ? problem.message : 'This recovery phrase doesn’t match this wallet.')
+      } finally { setBusy(false) }
+      return
+    }
+    if (step === 'reset') {
+      if (!passwordRules.every((rule) => rule.test(password))) { fail('Your new password doesn’t meet all the requirements yet.'); return }
+      if (password !== confirmation) { fail('The passwords do not match.'); return }
+      setBusy(true)
+      try {
+        const session = await (await vault()).resetPassword(phrase, password)
+        setPhrase('')
+        try { saveFailedUnlocks(0) } catch { /* Counter reset is best effort. */ }
+        setUnlocked(true)
+        setTimeout(() => onSession(session), 650)
+      } catch (problem) {
+        fail(problem instanceof Error ? problem.message : 'The password could not be changed. Nothing was changed.')
+      } finally { setBusy(false) }
+      return
+    }
     if (step === 'import') {
       if (!(await vault()).validPhrase(phrase)) { fail('Enter a valid English BIP-39 recovery phrase.'); return }
       setOrigin('import')
@@ -82,14 +129,25 @@ export function Access({ locked, protect, intent, close, onSession, erased }: {
       setTimeout(() => onSession(session), 900)
     } catch (problem) {
       fail(problem instanceof Error ? problem.message : 'The local wallet could not be opened.')
+      if (problem instanceof Error && problem.message === 'Incorrect password') setPassword('')
       // Wrong passwords count here like on the lock screen, with the same stored counter.
       if (step !== 'unlock' || !protect || !(problem instanceof Error && problem.message === 'Incorrect password')) return
       const count = failedUnlocks() + 1
       try { saveFailedUnlocks(count) } catch { /* Still enforce within this session. */ }
       setFailures(count)
-      setPassword('')
       if (count >= maxUnlockAttempts) await erase()
     } finally {
+      setBusy(false)
+    }
+  }
+
+  async function deleteWallet() {
+    setBusy(true)
+    try {
+      await (await vault()).removeVault(savedVaultId() ?? '')
+      try { forgetVault() } finally { erased('Wallet deleted') }
+    } catch (problem) {
+      fail(problem instanceof Error ? problem.message : 'The local wallet could not be removed.')
       setBusy(false)
     }
   }
@@ -106,9 +164,26 @@ export function Access({ locked, protect, intent, close, onSession, erased }: {
   const titles: Record<AccessStep, string> = {
     choose: t('Set up Still'), create: t('Back up your recovery phrase'), verify: t('Check your backup'),
     import: t('Import a wallet'), password: t('Set a password'), unlock: t('Unlock Still'), done: t('Wallet ready'),
+    forgot: t('Forgot your password?'), recover: t('Enter your recovery phrase'), reset: t('Pick a new password'), erase: t('Delete wallet?'),
   }
+  const swapClass = swapIn ? 'form lock-card--in' : 'form'
 
-  return <Dialog title={titles[step]} close={close} busy={busy || unlocked || step === 'done'} back={back}>
+  return <Dialog title={titles[step]} step={step === 'forgot' || step === 'recover' ? 'unlock' : step} titleFade={fadeTitle.current} anchorBottom={swapIn} close={close} busy={busy || unlocked || step === 'done'} back={back}>
+    {step === 'forgot' && <div className={swapClass}>
+      {/* Invisible copy of the unlock text + field keeps the blue button exactly where Unlock was. */}
+      <div className="swap-stack">
+        <div className="swap-ghost" aria-hidden="true" inert><p className="dialog-intro">{t('Enter your password to open the encrypted vault on this device.')}</p><span className="field">{t('Pass\u2060word')}<span className="swap-ghost-input" /></span></div>
+        <p className="dialog-intro">{t('Your recovery phrase sets a new password, nothing is lost. Deleting is final.')}</p>
+      </div>
+      <ErrorSlot error={error} attempt={tries} />
+      <button type="button" className="button primary wide" onClick={() => swapTo('recover')}><span className="label-swap label-fade"><KeyRound size={17} />{t('Use recovery phrase')}</span></button>
+      <div className="two-actions"><button type="button" className="button secondary" onClick={() => swapTo('unlock')}>{t('Cancel')}</button><button type="button" className="button secondary" onClick={() => changeStep('erase')}>{t('Delete wallet')}</button></div>
+    </div>}
+    {step === 'erase' && <div className="form"><span className="empty-icon"><Trash2 size={24} /></span>
+      <p className="dialog-intro dialog-intro--center">{t('Are you sure you want to delete your wallet from Still Wallet on this device? You can only get it back with your recovery phrase.')}</p>
+      <ErrorSlot error={error} attempt={tries} />
+      <div className="two-actions"><button type="button" className="button primary" onClick={() => changeStep('forgot')} disabled={busy} autoFocus>{t('Cancel')}</button><button type="button" className="button secondary" onClick={() => void deleteWallet()} disabled={busy}><span key={String(busy)} className="label-swap">{busy ? t('Deleting…') : t('Delete wallet')}</span></button></div>
+    </div>}
     {step === 'done' && <div className="setup-done">
       <span className="setup-done-check" aria-hidden="true"><svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" pathLength="1" /></svg></span>
       <strong>{t('You’re all set')}</strong>
@@ -125,7 +200,18 @@ export function Access({ locked, protect, intent, close, onSession, erased }: {
       <button type="button" className="button primary wide" onClick={() => changeStep('verify')}>{t('I’ve written it down')} <ArrowRight size={17} /></button>
       <button type="button" className="button text-button wide" onClick={() => { setPhrase(''); changeStep('choose') }}><ArrowLeft size={16} /> {t('Back to setup')}</button>
     </>}
-    {step !== 'choose' && step !== 'create' && step !== 'done' && <form className="form" autoComplete="off" onSubmit={submit}>
+    {step !== 'choose' && step !== 'create' && step !== 'done' && step !== 'forgot' && step !== 'erase' && <form className={step === 'unlock' || step === 'recover' ? swapClass : 'form'} autoComplete="off" onSubmit={submit}>
+      {step === 'recover' && <>
+        <p className="dialog-intro">{t('Type the words of this wallet in order. They stay on this device.')}</p>
+        <label className={error ? 'field field--wrong' : 'field'}><textarea aria-label={t('Recovery phrase')} aria-invalid={!!error} value={phrase} onChange={(event) => setPhrase(event.target.value)} name="recovery-phrase" autoFocus required rows={4} maxLength={320} autoComplete="off" spellCheck={false} autoCapitalize="none" autoCorrect="off" data-1p-ignore data-lpignore="true" data-bwignore="true" data-form-type="other" /></label>
+      </>}
+      {step === 'reset' && <>
+        <label className="field">{t('New pass\u2060word')}<PasswordInput value={password} onChange={(event) => setPassword(event.target.value)} autoFocus required maxLength={256} aria-describedby="access-reset-rules" /></label>
+        <ul className="password-rules" id="access-reset-rules" aria-live="polite">
+          {passwordRules.map((rule) => { const met = rule.test(password); return <li key={rule.label} className={met ? 'met' : ''}>{met ? <Check size={14} /> : <X size={14} />}{t(rule.label)}</li> })}
+        </ul>
+        <label className="field">{t('Confirm pass\u2060word')}<PasswordInput value={confirmation} onChange={(event) => setConfirmation(event.target.value)} required maxLength={256} /></label>
+      </>}
       {step === 'import' && <>
         <p className="dialog-intro">{t('Enter your English BIP-39 recovery phrase in order. Still derives the first account on each supported network.')}</p>
         <label className="field">{t('Recovery phrase')}<textarea value={phrase} onChange={(event) => setPhrase(event.target.value)} name="recovery-phrase" autoFocus required rows={4} maxLength={320} autoComplete="off" spellCheck={false} autoCapitalize="none" autoCorrect="off" /></label>
@@ -147,12 +233,16 @@ export function Access({ locked, protect, intent, close, onSession, erased }: {
       </>}
       <ErrorSlot error={error} attempt={tries} />
       <button type="submit" className="button primary wide" disabled={busy || unlocked}>
-        {unlocked ? <span key="open" className="label-swap"><LockKeyhole size={17} className="unlocking" />{t('Unlocked')}</span> : <>
+        {unlocked ? <span key="open" className="label-swap"><LockKeyhole size={17} className="unlocking" />{t('Unlocked')}</span> : step === 'recover' || step === 'reset' ? <span key={String(busy)} className={fadeLabel.current && step === 'recover' && !busy ? 'label-swap label-fade' : 'label-swap'}>
+          {busy ? <LoaderCircle size={17} className="spin" /> : step === 'reset' && <LockKeyhole size={17} />}
+          {busy ? (step === 'recover' ? t('Checking…') : t('Saving…')) : step === 'recover' ? t('Continue') : t('Save password')}
+        </span> : <span className={fadeLabel.current && step === 'unlock' && !busy ? 'label-swap label-fade' : 'label-swap label-still'}>
           {busy ? <LoaderCircle size={17} className="spin" /> : (step === 'password' || step === 'unlock') && <LockKeyhole size={17} />}
           {busy ? t('Opening vault…') : step === 'unlock' ? t('Unlock wallet') : step === 'password' ? t('Save wallet') : t('Continue')}
-        </>}
+        </span>}
       </button>
-      {step !== 'unlock' && <button type="button" className="button text-button wide" disabled={busy} onClick={() => changeStep(step === 'verify' ? 'create' : step === 'password' ? origin : 'choose')}><ArrowLeft size={16} /> {t('Back')}</button>}
+      {step === 'unlock' && <button type="button" className="button text-button wide swap-below" disabled={busy || unlocked} onClick={() => swapTo('forgot')}>{t('Forgot password?')}</button>}
+      {step !== 'unlock' && <button type="button" className={step === 'recover' ? 'button text-button wide swap-below' : 'button text-button wide'} disabled={busy} onClick={() => step === 'recover' ? swapTo('forgot') : step === 'reset' ? changeStep('recover') : changeStep(step === 'verify' ? 'create' : step === 'password' ? origin : 'choose')}><ArrowLeft size={16} /> {t('Back')}</button>}
     </form>}
   </Dialog>
 }

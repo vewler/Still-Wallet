@@ -16,6 +16,8 @@ import { tokenById, tokenPriceIds, type Token } from './tokens'
 import { type ActivityItem } from './storage'
 import { evmAccount, solanaKeypair, type Session } from './vault'
 
+const responseLimit = 16 * 1024 * 1024
+
 export function privateFetch(signal: AbortSignal): typeof fetch {
   return async (input, init) => {
     const controller = new AbortController()
@@ -28,8 +30,22 @@ export function privateFetch(signal: AbortSignal): typeof fetch {
     const timeout = setTimeout(abort, 12_000)
     try {
       const response = await fetch(input, { ...init, signal: controller.signal, credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer', cache: 'no-store' })
-      // Read the body within the same timeout.
-      return new Response(await response.arrayBuffer(), { status: response.status, statusText: response.statusText, headers: response.headers })
+      // Read the body within the same timeout, and never more than a provider would sensibly send (a bad custom RPC could freeze the tab).
+      if (Number(response.headers.get('content-length')) > responseLimit) { abort(); throw new Error('The RPC sent too much data.') }
+      const reader = response.body?.getReader()
+      const chunks: Uint8Array[] = []
+      let length = 0
+      if (reader) for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        length += value.length
+        if (length > responseLimit) { abort(); throw new Error('The RPC sent too much data.') }
+        chunks.push(value)
+      }
+      const body = new Uint8Array(length)
+      let offset = 0
+      for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.length }
+      return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers })
     } finally {
       clearTimeout(timeout)
       sources.forEach((source) => source.removeEventListener('abort', abort))
@@ -133,6 +149,7 @@ export async function getBalance(network: Network, endpoint: string, addresses: 
 }
 
 const tokenProgram = address('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')
+const token2022Program = address('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb')
 const associatedTokenProgram = address('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL')
 
 async function associatedTokenAddress(owner: string, mint: string) {
@@ -187,6 +204,21 @@ export async function getPriceHistory(priceId: string, currency: string, days: n
   return data.prices.map((entry) => Array.isArray(entry) ? Number(entry[1]) : NaN).filter((value) => Number.isFinite(value) && value >= 0)
 }
 
+export type Candle = { time: number; open: number; high: number; low: number; close: number }
+
+/** Real OHLC candles for one coin, oldest first. */
+export async function getOhlc(priceId: string, currency: string, days: number, signal: AbortSignal): Promise<Candle[]> {
+  const response = await privateFetch(signal)(`/api/market/ohlc/${encodeURIComponent(priceId)}?currency=${encodeURIComponent(currency)}&days=${days}`)
+  if (!response.ok) throw Object.assign(new Error('Price history is unavailable.'), { status: response.status })
+  const data = await response.json() as unknown
+  if (!Array.isArray(data)) throw new Error('Price history is unavailable.')
+  return data.flatMap((row) => {
+    if (!Array.isArray(row) || row.length < 5) return []
+    const [time, open, high, low, close] = row.slice(0, 5).map(Number)
+    return [time, open, high, low, close].every((value) => Number.isFinite(value) && value >= 0) && high >= low ? [{ time, open, high, low, close }] : []
+  })
+}
+
 /** 7d lines for many coins in one call, keyed by coin id. */
 export async function getSparklines(priceIds: string[], currency: string, signal: AbortSignal): Promise<Record<string, number[]>> {
   const response = await privateFetch(signal)(`/api/market/sparklines?currency=${encodeURIComponent(currency)}`)
@@ -217,7 +249,7 @@ export type Quote = {
   rent?: string
   destinationTag?: number
   kind?: ActivityItem['kind']
-  receive?: { amount: string; minimum: string; symbol: string; network?: string; slippage?: number; auto?: boolean; impact?: number }
+  receive?: { amount: string; minimum: string; symbol: string; network?: string; slippage?: number; auto?: boolean; impact?: number; market?: number; unchecked?: boolean }
   /** Who receives the coins in a swap, shown on review. */
   via?: string
   /** Cross-chain swaps: seconds until the coins arrive. */
@@ -255,7 +287,7 @@ export async function quoteTransfer(network: Network, endpoint: string, addresse
       client.getMultipleAccounts([to], { encoding: 'base64', commitment: 'confirmed' }).send(),
     ])
     // Funds sent to a token account (or an ATA made for it) are stuck.
-    if (recipientAccount?.owner === tokenProgram) throw new Error('This is a token account, not a wallet address. Ask the recipient for their Solana wallet address.')
+    if (recipientAccount?.owner === tokenProgram || recipientAccount?.owner === token2022Program) throw new Error('This is a token account, not a wallet address. Ask the recipient for their Solana wallet address.')
     const authority = createNoopSigner(from)
     let rent = 0n
     let instructions

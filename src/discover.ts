@@ -4,7 +4,7 @@ import { evmClient, privateFetch, type Prices } from './rpc'
 import { cleanLabel, knownToken, looksLikeSpam, type Token, type UserToken } from './tokens'
 
 const splToken = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'
-const token2022 = 'TokenzQdBNbLqP5VEhdkAS6EnprnYuBFdBfNx5RQwdsnr'
+const token2022 = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'
 const solanaAddress = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/
 
 type PriceRow = Record<string, number | undefined>

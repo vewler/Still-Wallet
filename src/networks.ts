@@ -157,11 +157,13 @@ export function formatAmount(amount: bigint, decimals: number) {
   return fraction ? `${whole}.${fraction}` : whole
 }
 
-export function validateEndpoint(value: string) {
+export function validateEndpoint(value: string, chain?: Chain) {
   const url = new URL(value)
   const loopback = ['localhost', '127.0.0.1'].includes(url.hostname)
   if ((url.protocol !== 'https:' && !(loopback && url.protocol === 'http:')) || url.username || url.password || url.hash) {
     throw new Error('Use an HTTPS RPC URL or a local HTTP endpoint.')
   }
+  // The Monero wallet's HTTP client drops any path, so a node behind one would silently fail.
+  if (chain === 'monero' && (url.pathname !== '/' || url.search)) throw new Error('Monero nodes can’t have a path. Use just the address and port, like https://node.example:18089.')
   return url.href
 }

@@ -26,7 +26,8 @@ const rules: Partial<Record<Chain, { get: RegExp[]; post?: Post | Post[] }>> = {
     post: ['/v2/transactions', (body) => body.length % 2 === 0 && /^[a-f\d]+$/i.test(body), 'application/octet-stream', true],
   },
   tezos: {
-    get: [/^\/chains\/main\/blocks\/head\/header$/, /^\/chains\/main\/blocks\/head\/context\/contracts\/tz[123][1-9A-HJ-NP-Za-km-z]{33}\/(?:balance|counter|manager_key)$/],
+    get: [/^\/chains\/main\/blocks\/head\/header$/, /^\/chains\/main\/blocks\/head\/context\/contracts\/tz[123][1-9A-HJ-NP-Za-km-z]{33}\/(?:balance|counter|manager_key)$/,
+      /^\/chains\/main\/blocks\/\d{1,10}\/operation_hashes\/3$/, /^\/chains\/main\/blocks\/\d{1,10}\/operations\/3\/\d{1,5}$/],
     post: ['/injection/operation', (body) => /^"[a-f\d]+"$/.test(body), 'application/json'],
   },
   ton: {

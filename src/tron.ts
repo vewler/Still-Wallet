@@ -33,11 +33,28 @@ export async function tronBalance(endpoint: string, owner: string, fetcher: type
 
 const word = (bytes: Uint8Array) => hex.encode(bytes).padStart(64, '0')
 
-async function tokenCall(endpoint: string, owner: string, contract: string, selector: string, parameter: string, fetcher: typeof fetch) {
-  const reply = await tronRequest<{ result?: { result?: boolean }; constant_result?: string[]; energy_used?: number; energy_penalty?: number }>(endpoint, '/wallet/triggerconstantcontract', {
+type ConstantReply = { result?: { result?: boolean; code?: string; message?: string }; constant_result?: string[]; energy_used?: number; energy_penalty?: number; transaction?: { ret?: { ret?: string; contractRet?: string }[] } }
+function constantCall(endpoint: string, owner: string, contract: string, selector: string, parameter: string, fetcher: typeof fetch) {
+  return tronRequest<ConstantReply>(endpoint, '/wallet/triggerconstantcontract', {
     owner_address: owner, contract_address: contract, function_selector: selector, parameter, visible: true,
   }, fetcher)
+}
+
+async function tokenCall(endpoint: string, owner: string, contract: string, selector: string, parameter: string, fetcher: typeof fetch) {
+  const reply = await constantCall(endpoint, owner, contract, selector, parameter, fetcher)
   if (!reply.result?.result || !reply.constant_result?.[0] || !/^[a-f\d]{64}$/i.test(reply.constant_result[0])) throw new Error('The Tron provider could not read the token.')
+  return reply
+}
+
+/**
+ * Test run of a token transfer. Only a revert counts as a failure: Tron USDT's transfer
+ * returns false (or nothing) even when it works, so the return value is ignored.
+ */
+async function transferTest(endpoint: string, owner: string, contract: string, parameter: string, fetcher: typeof fetch) {
+  const reply = await constantCall(endpoint, owner, contract, 'transfer(address,uint256)', parameter, fetcher)
+  const reverted = !reply.result?.result || Boolean(reply.result.code) || /^08c379a0/i.test(reply.constant_result?.[0] ?? '')
+    || Boolean(reply.transaction?.ret?.some((entry) => entry.ret === 'FAILED' || (entry.contractRet !== undefined && entry.contractRet !== 'SUCCESS')))
+  if (reverted) throw new Error('The network rejected this transaction in a test run. Check the amount and balances, then try again.')
   return reply
 }
 
@@ -136,10 +153,9 @@ export async function quoteTron(network: Network, endpoint: string, from: string
     const data = hex.decode('a9059cbb' + word(to.subarray(1)) + value.toString(16).padStart(64, '0'))
     const [held, test] = await Promise.all([
       tronTokenBalances(endpoint, from, [token], fetcher).then((result) => result[token.id]),
-      tokenCall(endpoint, from, token.contract, 'transfer(address,uint256)', hex.encode(data.subarray(4)), fetcher),
+      transferTest(endpoint, from, token.contract, hex.encode(data.subarray(4)), fetcher),
     ])
     if (held < value) throw new Error(`Insufficient ${token.symbol} to cover this transfer.`)
-    if (BigInt('0x' + test.constant_result![0]) !== 1n) throw new Error('The network rejected this transaction in a test run. Check the amount and balances, then try again.')
     const energy = BigInt(test.energy_used ?? 0)
     if (energy <= 0n) throw new Error('Tron network fees are currently unavailable.')
     const spare = BigInt(Math.max(0, (resources.EnergyLimit ?? 0) - (resources.EnergyUsed ?? 0)))

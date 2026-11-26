@@ -50,10 +50,11 @@ export function createMarket(env: NodeJS.ProcessEnv, request: typeof fetch) {
       upstream = `/coins/markets?ids=${ids.join(',')}&vs_currency=${currency}&sparkline=true`
       ttl = 15 * 60_000
     } else {
-      const priceId = /^\/api\/market\/history\/([a-z0-9-]+)$/.exec(url.pathname)?.[1] ?? ''
+      const [, kind = '', priceId = ''] = /^\/api\/market\/(history|ohlc)\/([a-z0-9-]+)$/.exec(url.pathname) ?? []
       const days = url.searchParams.get('days') ?? ''
       if (!ids.includes(priceId) || !daysAllowed.has(days)) return reject(400)
-      upstream = `/coins/${priceId}/market_chart?vs_currency=${currency}&days=${days}`
+      // ohlc = real candles with true highs and lows, history = the line.
+      upstream = kind === 'ohlc' ? `/coins/${priceId}/ohlc?vs_currency=${currency}&days=${days}` : `/coins/${priceId}/market_chart?vs_currency=${currency}&days=${days}`
       ttl = (days === '1' ? 5 : days === '7' ? 15 : 60) * 60_000
     }
     const existing = cache.get(upstream)
@@ -78,7 +79,9 @@ export function createMarket(env: NodeJS.ProcessEnv, request: typeof fetch) {
         if (body.length > 512 * 1024) return stale ?? reject(502)
         for (const [key, item] of cache) if (item.expires + STALE <= Date.now()) cache.delete(key)
         if (cache.size >= 96) cache.delete(cache.keys().next().value!)
-        cache.set(upstream, { body, expires: Date.now() + ttl })
+        // Contracts CoinGecko doesn't know stay unknown for a while, don't ask again soon.
+        const unknown = upstream.startsWith('/simple/token_price/') && /^\s*\{\s*\}\s*$/.test(body)
+        cache.set(upstream, { body, expires: Date.now() + (unknown ? 6 * 60 * 60_000 : ttl) })
         return { status: 200, body }
       } catch {
         return stale ?? reject(502)

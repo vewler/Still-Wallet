@@ -6,7 +6,7 @@ import { credits, dataSources, supporters, team } from '../credits'
 import './landing.css'
 import { t, tx } from '../i18n'
 
-const updated = 'November 19, 2026'
+const updated = 'November 26, 2026'
 
 /** Privacy policy. Keep in sync with what the app does. */
 export function PrivacyPolicy({ mainRef, back }: { mainRef: Ref<HTMLElement>; back: string }) {
@@ -31,8 +31,8 @@ export function PrivacyPolicy({ mainRef, back }: { mainRef: Ref<HTMLElement>; ba
       <p>Still saves the following in your browser’s local storage, on your device only:</p>
       <ul>
         <li>Your recovery phrase, encrypted with your password (AES-256-GCM, key derived with PBKDF2 using 600,000 rounds). It is never sent anywhere.</li>
-        <li>Wallet names and emojis, and your settings (such as hidden balances, currency, auto-lock, account protection and custom RPC addresses).</li>
-        <li>A history of transactions submitted from Still, so Activity can show their status, and a count of wrong password attempts if account protection is on.</li>
+        <li>Your Home coins and their order, imported and found tokens, the address book, and a history of transactions submitted from Still so Activity can show their status. These are encrypted with a key from your recovery phrase.</li>
+        <li>Wallet names and emojis, your settings (such as hidden balances, currency, auto-lock, account protection and custom RPC addresses), the last prices of listed coins, and a count of wrong password attempts if account protection is on. These aren’t encrypted, so anyone with access to this device can read them, but they don’t show what your wallets hold.</li>
       </ul>
       <p>Your password isn’t stored. If you forget it, nobody can recover it. You can erase everything with <strong>Settings → Delete wallet</strong>, or by clearing this site’s data in your browser.</p>
 

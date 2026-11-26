@@ -7,7 +7,7 @@ import type { Session } from '../vault'
 import type { ActivityItem } from '../storage'
 import type { Quote } from '../rpc'
 import * as wc from '../walletconnect'
-import { currentPrompts, currentSessions, evmNetworks, hostOf, networkForChain, sessionAccount, solanaChain, subscribe, walletConnectUsed, walletKit, type Prompt } from '../walletconnect'
+import { currentPrompts, currentSessions, evmNetworks, hostOf, networkForChain, pauseApps, sessionAccount, solanaChain, subscribe, walletConnectUsed, walletKit, type Prompt } from '../walletconnect'
 
 /** Plain errors only, library errors (viem dumps request bodies) get a short line. */
 const message = (problem: unknown, fallback = 'Something went wrong. Try again.') => {
@@ -41,17 +41,18 @@ function AppHeader({ name, url }: { name: string; url: string }) {
 }
 
 /** Reconnects saved sessions after unlock, only for people who use connected apps. */
-export function useDapps(enabled: boolean) {
+export function useDapps(enabled: boolean, paused = false) {
   const prompts = useSyncExternalStore(subscribe, currentPrompts)
   const sessions = useSyncExternalStore(subscribe, currentSessions)
   useEffect(() => {
     if (enabled && walletConnectUsed()) walletKit().catch(() => {})
-  }, [enabled])
+    if (paused) pauseApps()
+  }, [enabled, paused])
   return { prompts, sessions }
 }
 
 /** Settings > Connected apps: connect with a link or QR code, see and end sessions. */
-export function ConnectedApps({ close, offline, initialLink = '' }: { close: () => void; offline: boolean; initialLink?: string }) {
+export function ConnectedApps({ close, offline, address = '', initialLink = '' }: { close: () => void; offline: boolean; address?: string; initialLink?: string }) {
   const sessions = useSyncExternalStore(subscribe, currentSessions)
   const [link, setLink] = useState(initialLink)
   const [error, setError] = useState('')
@@ -59,6 +60,7 @@ export function ConnectedApps({ close, offline, initialLink = '' }: { close: () 
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(!offline)
   const [scanning, setScanning] = useState(false)
+  const [opening, setOpening] = useState(false)
   // After the camera failed once, the next try opens it before leaving the list, so a repeat failure keeps the error still.
   const [camera, setCamera] = useState<MediaStream>()
   const [ending, setEnding] = useState('')
@@ -94,6 +96,8 @@ export function ConnectedApps({ close, offline, initialLink = '' }: { close: () 
   }, [])
 
   async function scan() {
+    if (opening) return
+    setOpening(true)
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error('unsupported')
       const media = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
@@ -103,6 +107,8 @@ export function ConnectedApps({ close, offline, initialLink = '' }: { close: () 
     } catch {
       setError(t('Couldn’t open the camera. Allow camera access, or paste the link instead.'))
       setTries((count) => count + 1)
+    } finally {
+      setOpening(false)
     }
   }
 
@@ -140,16 +146,21 @@ export function ConnectedApps({ close, offline, initialLink = '' }: { close: () 
       </label>
       <ErrorSlot error={error} attempt={tries} />
       <div className="two-actions">
-        <button type="button" className="button secondary" onClick={() => void scan()} disabled={busy || loading}><ScanLine size={17} /> {t('Scan')}</button>
+        <button type="button" className="button secondary" onClick={() => void scan()} disabled={busy || loading || opening}>{opening ? <LoaderCircle size={17} className="spin" /> : <ScanLine size={17} />} {t('Scan')}</button>
         <button type="submit" className="button primary" disabled={busy || loading || !link.trim()}>{busy ? <LoaderCircle size={17} className="spin" /> : <Link2 size={17} />} {t('Connect')}</button>
       </div>
       <p className="group-label dapp-label">{loading ? t('Loading…') : sessions.length ? t('Connected') : t('No apps connected')}</p>
       {sessions.length > 0 && <ul className="credits-list dapp-list">
-        {sessions.map((session) => <li key={session.topic}>
+        {sessions.map((session) => {
+          // Apps stay with the wallet they connected to, switching wallets doesn't tell them about the new one.
+          const tied = sessionAccount(session.topic, 'eip155:1')
+          const other = Boolean(address && tied && tied.toLowerCase() !== address.toLowerCase())
+          return <li key={session.topic}>
           <AppMark name={session.peer.metadata.name} />
-          <span><strong>{session.peer.metadata.name || t('Unnamed app')}</strong><small className="mono">{hostOf(session.peer.metadata.url)}</small></span>
+          <span><strong>{session.peer.metadata.name || t('Unnamed app')}</strong><small className="mono">{hostOf(session.peer.metadata.url)}{other ? ` · ${t('Another wallet')}` : ''}</small></span>
           <button type="button" className="button secondary pill" onClick={() => void end(session.topic)} disabled={ending === session.topic}>{ending === session.topic ? <LoaderCircle size={15} className="spin" /> : t('Disconnect')}</button>
-        </li>)}
+        </li>
+        })}
       </ul>}
       <p className="field-note">{t('Apps only see your public address. Still asks you before anything gets signed or sent.')}</p>
     </form>}
@@ -274,11 +285,11 @@ function PromptSheet({ prompt, wallet }: { prompt: Prompt; wallet: DappWallet })
 
 type SheetProps = { wallet: DappWallet; busy: boolean; error: string; tries: number; cancel: (slide?: boolean) => Promise<void> }
 
-function Verification({ context }: { context?: { verified?: { validation?: string; isScam?: boolean } } }) {
+function Verification({ context, quiet }: { context?: { verified?: { validation?: string; isScam?: boolean } }; quiet?: boolean }) {
   const verified = context?.verified
   if (verified?.isScam) return <Notice error>{t('This site is flagged as a scam. Don’t connect or sign anything.')}</Notice>
   if (verified?.validation === 'INVALID') return <Notice error>{t('This site’s address doesn’t match the app it claims to be. It could be an imitation.')}</Notice>
-  if (verified?.validation === 'VALID') return null
+  if (verified?.validation === 'VALID' || quiet) return null
   return <p className="field-note">{t('Still couldn’t verify this site. Check the address above is the one you meant to use.')}</p>
 }
 
@@ -315,6 +326,11 @@ function RequestSheet({ prompt, wallet, busy, error, tries, cancel, run, leave }
   const mine = solana ? wallet.session.addresses.solana : wallet.session.addresses.ethereum
   const approved = sessionAccount(prompt.event.topic, solana ? solanaChain : chainId)
   const otherWallet = Boolean(approved && approved.toLowerCase() !== mine.toLowerCase())
+  const requestChain = /^eip155:(\d+)$/.exec(chainId)?.[1]
+  const scam = Boolean(prompt.event.verifyContext?.verified?.isScam)
+  // Unclear transactions take a second tap.
+  const [sure, setSure] = useState(false)
+  const [showData, setShowData] = useState(false)
   const [details, setDetails] = useState<Awaited<ReturnType<typeof describe>>>()
   const [loadError, setLoadError] = useState('')
   const [attempt, setAttempt] = useState(0)
@@ -330,7 +346,8 @@ function RequestSheet({ prompt, wallet, busy, error, tries, cancel, run, leave }
     if (method.startsWith('eth_signTypedData')) {
       const { data, address } = dapps.typedParams(params)
       if (address && address.toLowerCase() !== mine.toLowerCase()) throw new Error('This request is for a different address.')
-      return { kind: 'typed' as const, data, permit: dapps.isPermit(data) }
+      dapps.checkTypedChain(data, requestChain ? Number(requestChain) : undefined)
+      return { kind: 'typed' as const, data, permit: dapps.isPermit(data), rights: dapps.grantsRights(data) }
     }
     if (method === 'eth_sendTransaction') {
       if (!network || network.chain === 'solana') throw new Error('Still doesn’t support this network.')
@@ -341,8 +358,12 @@ function RequestSheet({ prompt, wallet, busy, error, tries, cancel, run, leave }
     }
     const list = dapps.solanaTransactions(method, params)
     const solanaNetwork = networks['solana-main']
-    const preview = list.length === 1 ? await wallet.withEndpoint(solanaNetwork, signal, (endpoint, _session, request) => dapps.previewSolana(mine, endpoint, list[0], request)).catch(() => undefined) : undefined
-    return { kind: 'solana' as const, count: list.length, preview, change: preview?.change === undefined ? undefined : dapps.formatLamports(preview.change) }
+    const preview = await wallet.withEndpoint(solanaNetwork, signal, (endpoint, _session, request) => dapps.previewSolana(mine, endpoint, list, request)).catch(() => undefined)
+    if (signal.aborted) throw new Error('Couldn’t read this request.')
+    return {
+      kind: 'solana' as const, count: list.length, preview, change: preview?.change === undefined ? undefined : dapps.formatLamports(preview.change),
+      tokens: preview?.tokens.map(dapps.formatTokenChange) ?? [],
+    }
   }
 
   useEffect(() => {
@@ -353,7 +374,13 @@ function RequestSheet({ prompt, wallet, busy, error, tries, cancel, run, leave }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attempt])
 
+  // Solana transactions Still can't fully read, or that hand out permissions.
+  const unclear = details?.kind === 'solana' && (!details.preview || details.preview.failed || details.preview.fails || details.preview.approve || details.preview.authority)
+
   async function confirm() {
+    if (unclear && !sure) { setSure(true); return }
+    // The fee quote ran out while the sheet was open: get a fresh one, the next tap signs it.
+    if (details?.kind === 'transaction' && Date.now() > details.quote.expires - 2_000) { setDetails(undefined); setAttempt((count) => count + 1); return }
     await run(async () => {
       const dapps = await import('../dapps')
       let result: unknown
@@ -361,7 +388,7 @@ function RequestSheet({ prompt, wallet, busy, error, tries, cancel, run, leave }
         const item = await wallet.submit(details.quote)
         result = item.hash
       } else if (method === 'personal_sign') result = await dapps.signPersonal(wallet.session, params)
-      else if (method.startsWith('eth_signTypedData')) result = await dapps.signTyped(wallet.session, params)
+      else if (method.startsWith('eth_signTypedData')) result = await dapps.signTyped(wallet.session, params, requestChain ? Number(requestChain) : undefined)
       else if (method === 'solana_signMessage') result = await dapps.signSolanaMessage(wallet.session, params)
       else result = await wallet.withEndpoint(networks['solana-main'], AbortSignal.timeout(30_000), (endpoint, session, signal) => dapps.signSolana(session, method, params, endpoint, signal))
       await wc.respond(prompt, result)
@@ -372,11 +399,12 @@ function RequestSheet({ prompt, wallet, busy, error, tries, cancel, run, leave }
 
   const sends = method === 'eth_sendTransaction' || method === 'solana_signAndSendTransaction'
   const title = details?.kind === 'message' ? t('Sign message') : details?.kind === 'typed' ? t('Sign data') : sends ? t('Review transaction') : t('Sign transaction')
-  const blocked = otherWallet || Boolean(loadError)
+  const blocked = otherWallet || Boolean(loadError) || scam
   return <Dialog title={title} close={() => void cancel()} busy={busy}>
     <div className="form">
       <AppHeader name={app.name} url={app.url} />
-      {otherWallet ? <Notice error>{t('This app is connected to a different wallet. Switch to that wallet in Still, then try again in the app.')}</Notice>
+      <Verification context={prompt.event.verifyContext} quiet />
+      {scam ? null : otherWallet ? <Notice error>{t('This app is connected to a different wallet. Switch to that wallet in Still, then try again in the app.')}</Notice>
         : loadError ? <Notice error>{loadError}</Notice>
         : !details ? <div className="dapp-loading"><LoaderCircle size={22} className="spin" /> {t('Checking request…')}</div>
         : details.kind === 'message' ? <>
@@ -385,36 +413,48 @@ function RequestSheet({ prompt, wallet, busy, error, tries, cancel, run, leave }
         </> : details.kind === 'typed' ? <>
           <dl className="review-list">
             {typeof details.data.domain?.name === 'string' && <div><dt>{t('Contract')}</dt><dd>{details.data.domain.name}</dd></div>}
+            {typeof details.data.domain?.verifyingContract === 'string' && <div><dt>{t('Used by')}</dt><dd className="mono">{shortAddress(details.data.domain.verifyingContract)}</dd></div>}
             {details.data.domain?.chainId !== undefined && <div><dt>{t('Network')}</dt><dd>{evmNetworks.get(Number(details.data.domain.chainId))?.name ?? t('Chain {id}', { id: String(details.data.domain.chainId) })}</dd></div>}
             <div><dt>{t('Type')}</dt><dd>{details.data.primaryType}</dd></div>
           </dl>
           <pre className="sign-box">{JSON.stringify(details.data.message, (_key, value) => typeof value === 'bigint' ? value.toString() : value, 2)}</pre>
-          {details.permit ? <Notice error>{t('This is a token permit. It lets someone move your tokens later without asking again. Only sign on sites you trust.')}</Notice> : <Notice>{t('Signing doesn’t send coins by itself, but apps can use signatures to act for you. Only sign on sites you trust.')}</Notice>}
+          {details.permit ? <Notice error>{t('This is a token permit. It lets someone move your tokens later without asking again. Only sign on sites you trust.')}</Notice>
+            : details.rights ? <Notice error>{t('This signature can let the app move your tokens or sell your items later. Only sign on sites you trust.')}</Notice> : <Notice>{t('Signing doesn’t send coins by itself, but apps can use signatures to act for you. Only sign on sites you trust.')}</Notice>}
         </> : details.kind === 'transaction' ? <>
           <dl className="review-list">
             <div><dt>{t('Network')}</dt><dd>{details.quote.network.name} · {details.quote.network.label}</dd></div>
             <div><dt>{details.call ? t('Contract') : t('Recipient')}</dt><dd className="mono">{shortAddress(details.quote.to)}</dd></div>
-            {details.call?.kind === 'approve' && <><div><dt>{t('Action')}</dt><dd>{t(details.call.label)}</dd></div><div><dt>{t('Spender')}</dt><dd className="mono">{shortAddress(details.call.spender)}</dd></div><div><dt>{t('Limit')}</dt><dd>{['Unlimited', 'All items', 'Removed'].includes(details.call.amount) ? t(details.call.amount) : details.call.amount}</dd></div></>}
-            {details.call?.kind === 'transfer' && <><div><dt>{t('Action')}</dt><dd>{t(details.call.label)}</dd></div><div><dt>{t('To')}</dt><dd className="mono">{shortAddress(details.call.to)}</dd></div><div><dt>{t('Amount')}</dt><dd>{['Unlimited', 'All items', 'Removed'].includes(details.call.amount) ? t(details.call.amount) : details.call.amount}</dd></div></>}
-            {details.call?.kind === 'call' && <div><dt>{t('Action')}</dt><dd>{t(details.call.label)}</dd></div>}
+            {details.call?.kind === 'approve' && <><div><dt>{t('Action')}</dt><dd>{t(details.call.label)}</dd></div><div><dt>{t('Spender')}</dt><dd className="mono">{shortAddress(details.call.spender)}</dd></div><div><dt>{details.call.raw ? t('Amount or item') : t('Limit')}</dt><dd>{['Unlimited', 'All items', 'Removed'].includes(details.call.amount) ? t(details.call.amount) : details.call.amount}</dd></div></>}
+            {details.call?.kind === 'transfer' && <><div><dt>{t('Action')}</dt><dd>{t(details.call.label)}</dd></div><div><dt>{t('To')}</dt><dd className="mono">{shortAddress(details.call.to)}</dd></div><div><dt>{details.call.raw ? t('Amount or item') : t('Amount')}</dt><dd>{['Unlimited', 'All items', 'Removed', 'Several items'].includes(details.call.amount) ? t(details.call.amount) : details.call.amount}</dd></div></>}
+            {details.call?.kind === 'call' && <><div><dt>{t('Action')}</dt><dd>{t(details.call.label)}</dd></div><div><dt>{t('Function')}</dt><dd className="mono">{details.call.selector}</dd></div></>}
             <div><dt>{t('You send')}</dt><dd>{details.quote.value} {details.quote.network.symbol}</dd></div>
             <div><dt>{t('Network fee estimate')}</dt><dd>{details.quote.fee} {details.quote.network.symbol}</dd></div>
           </dl>
           {details.call?.kind === 'approve' ? <Notice error>{details.call.amount === 'Removed' ? t('This removes an app’s permission.') : t(details.call.amount === 'Unlimited' ? 'This lets {spender} move all your {token} with no limit. Only approve on sites you trust.' : 'This lets {spender} move your {token}. Only approve on sites you trust.', { spender: shortAddress(details.call.spender), token: details.call.token ?? t('tokens') })}</Notice>
+            : details.call?.kind === 'call' && details.call.onToken ? <Notice error>{t('This is an unusual action on a token contract. Still can’t read what it does. Only continue on sites you trust.')}</Notice>
             : <Notice>{t('This is a mainnet transaction. Once sent it can’t be recalled.')}</Notice>}
+          {details.call?.kind === 'call' && <>
+            <button className="button text-button wide" onClick={() => setShowData((open) => !open)}>{showData ? t('Hide data') : t('Show data')}</button>
+            {showData && <pre className="sign-box">{details.call.data}</pre>}
+          </>}
         </> : <>
           <dl className="review-list">
             <div><dt>{t('Network')}</dt><dd>{t('Solana')}</dd></div>
             {details.count > 1 && <div><dt>{t('Transactions')}</dt><dd>{details.count}</dd></div>}
             {details.change !== undefined && <div><dt>{t('SOL change')}</dt><dd>{details.change}</dd></div>}
+            {details.tokens.map((line) => <div key={line}><dt>{t('Token change')}</dt><dd>{line}</dd></div>)}
+            {details.preview && details.preview.unknown > 0 && <div><dt>{t('Other programs')}</dt><dd>{details.preview.unknown}</dd></div>}
           </dl>
-          {details.preview?.fails ? <Notice error>{t('A test run of this transaction failed. It will probably fail on chain too.')}</Notice>
-            : <Notice>{t('Still can’t show every detail of Solana app transactions, only the SOL change. Only approve on sites you trust.')}</Notice>}
+          {details.preview?.authority && <Notice error>{t('This hands control of one of your accounts to another address. Only sign if you fully trust this site.')}</Notice>}
+          {details.preview?.approve && <Notice error>{t('This lets another address move your tokens later. Only approve on sites you trust.')}</Notice>}
+          {!details.preview || details.preview.failed ? <Notice error>{t('Still can’t show what this does. Only sign if you fully trust this site.')}</Notice>
+            : details.preview.fails ? <Notice error>{t('A test run of this transaction failed. It will probably fail on chain too.')}</Notice>
+            : !details.preview.approve && !details.preview.authority && <Notice>{t('Still shows the SOL and token changes from a test run. Only approve on sites you trust.')}</Notice>}
         </>}
       <ErrorSlot error={error} attempt={tries} />
       {loadError && !otherWallet && <button className="button primary wide" onClick={() => { setLoadError(''); setAttempt((count) => count + 1) }}>{t('Try again')}</button>}
-      {!blocked && <button className="button primary wide" onClick={() => void confirm()} disabled={busy || !details || (details.kind === 'transaction' && Date.now() > details.quote.expires + 60_000)}>{busy ? sends ? t('Sending…') : t('Signing…') : sends ? t('Sign and send') : t('Sign')}</button>}
-      <button className={otherWallet ? 'button primary wide' : 'button text-button wide'} onClick={() => void cancel(true)} disabled={busy}>{blocked ? t('Reject') : t('Cancel')}</button>
+      {!blocked && <button className="button primary wide" onClick={() => void confirm()} disabled={busy || !details}>{busy ? sends ? t('Sending…') : t('Signing…') : unclear && sure ? t('Tap again to sign') : sends ? t('Sign and send') : t('Sign')}</button>}
+      <button className={otherWallet || scam ? 'button primary wide' : 'button text-button wide'} onClick={() => void cancel(true)} disabled={busy}>{blocked ? t('Reject') : t('Cancel')}</button>
     </div>
   </Dialog>
 }

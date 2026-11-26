@@ -1,4 +1,4 @@
-import { useRef, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { ArrowUp, Box, QrCode, ShieldCheck, Shuffle, SlidersHorizontal } from 'lucide-react'
 import { activeNetworks, formatAmount, type Network, type NetworkId } from '../networks'
 import type { Prices } from '../rpc'
@@ -35,10 +35,12 @@ type Props = {
 
 export function Overview({ mode, preferences, balances, refreshing, pulled, refresh, prices, changes, swap, scramble, openTransfer, openAsset, tokenBalances, openToken, layout, manage }: Props) {
   const hidden = preferences.hide
-  // Only animate amounts after the eye toggle, not on first load.
-  const startHidden = useRef(hidden)
-  const toggled = useRef(false)
-  if (hidden !== startHidden.current) toggled.current = true
+  // Only animate amounts right after the eye toggle, not on first load.
+  const toggles = useRef({ hidden, count: 0 })
+  if (toggles.current.hidden !== hidden) toggles.current = { hidden, count: toggles.current.count + 1 }
+  const toggleCount = toggles.current.count
+  // Drop the animation once it has played. Safari sometimes left the dots stuck at opacity 0 until the next repaint.
+  const [settled, setSettled] = useState(0)
   const networks = activeNetworks(preferences.environment)
   const canRefresh = !refreshing && mode === 'wallet' && !preferences.offline
   const shown = arrangeAssets(preferences.environment, layout).filter((entry) => entry.shown).map((entry) => entry.asset)
@@ -60,7 +62,13 @@ export function Overview({ mode, preferences, balances, refreshing, pulled, refr
   const dayChange = total !== undefined && yesterday !== undefined ? total - yesterday : undefined
   const dayPercent = dayChange !== undefined && yesterday ? dayChange / yesterday * 100 : 0
 
-  return <div className={toggled.current ? 'home home--mask-anim' : 'home'}>
+  useEffect(() => {
+    if (toggleCount === settled) return
+    const timer = setTimeout(() => setSettled(toggleCount), 400 + shown.length * 12)
+    return () => clearTimeout(timer)
+  }, [toggleCount, settled, shown.length])
+
+  return <div className={toggleCount !== settled ? 'home home--mask-anim' : 'home'}>
     <div className="summary">
     <section className="hero" aria-label={t('Portfolio balance')}>
       <div className="hero-amount"><span key={String(hidden)} className="mask-swap mask-swap--hero">{hidden ? <span className="redacted">••••••</span> : total === undefined ? <span className="hero-amount--empty">{t('Prices unavailable')}</span> : <BalanceAmount value={total} currency={preferences.currency} />}</span></div>

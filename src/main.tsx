@@ -14,6 +14,12 @@ applyLayout()
 pointer.addEventListener('change', applyLayout)
 wide.addEventListener('change', applyLayout)
 
+// iPhone/iPad zoom into fields under 16px on focus and stay zoomed. maximum-scale stops that, iOS still allows pinch zoom.
+if (/iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1)) {
+  const viewport = document.querySelector<HTMLMetaElement>('meta[name="viewport"]')
+  if (viewport && !viewport.content.includes('maximum-scale')) viewport.content += ', maximum-scale=1'
+}
+
 // Swap native "Please fill out this field" bubbles for our inline error.
 document.addEventListener('invalid', (event) => {
   const field = event.target as HTMLInputElement
@@ -44,9 +50,21 @@ document.addEventListener('focusin', (event) => {
 }, true)
 
 // Action tiles and the manage button replay their icon animation on every tap.
+// Only a real tap: a press that moves 10px or more (scroll, pull to refresh, drag) never plays it.
+let press: { icon: Element, id: number, x: number, y: number } | null = null
 document.addEventListener('pointerdown', (event) => {
   const icon = (event.target as Element).closest?.('.action:not(:disabled), .round-button')?.querySelector('.action svg:not(.lucide-refresh-cw), svg.lucide-sliders-horizontal')
-  if (!icon) return
+  press = icon ? { icon, id: event.pointerId, x: event.clientX, y: event.clientY } : null
+}, { passive: true })
+document.addEventListener('pointermove', (event) => {
+  if (press && event.pointerId === press.id && Math.hypot(event.clientX - press.x, event.clientY - press.y) >= 10) press = null
+}, { passive: true })
+document.addEventListener('pointercancel', () => { press = null }, { passive: true })
+document.addEventListener('pointerup', (event) => {
+  if (!press || event.pointerId !== press.id) return
+  const { icon, x, y } = press
+  press = null
+  if (Math.hypot(event.clientX - x, event.clientY - y) >= 10) return
   icon.classList.remove('tap')
   void (icon as SVGElement).getBoundingClientRect() // restart the animation
   icon.classList.add('tap')

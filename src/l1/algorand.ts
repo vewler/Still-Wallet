@@ -116,5 +116,6 @@ export async function algorandStatus(item: ActivityItem, endpoint: string, fetch
   const reply = await rest<{ 'confirmed-round'?: number; 'pool-error'?: string }>(endpoint, `/v2/transactions/pending/${item.hash}`, fetcher)
   if (reply?.['confirmed-round']) return 'confirmed'
   if (reply?.['pool-error']) return 'failed'
-  return item.status
+  // The node forgets transactions soon after they leave its pool, and a send is only valid for 1000 rounds (about an hour).
+  return Date.now() - item.created > 2 * 60 * 60_000 ? 'unknown' : item.status
 }

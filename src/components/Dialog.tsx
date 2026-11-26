@@ -41,8 +41,14 @@ const themeColor = () => document.querySelector<HTMLMetaElement>('meta[name="the
 const pageTheme = themeColor()?.content ?? '#09090b'
 
 /** Modal sheet. When the title/step changes the content slides and the sheet resizes to fit. */
-export function Dialog({ title, close, busy = false, step, back = false, lead, className, children }: {
+export function Dialog({ title, close, busy = false, step, back = false, lead, className, morph, titleFade = false, anchorBottom = false, children }: {
   title: string; close: () => void; busy?: boolean; step?: string; back?: boolean; className?: string
+  /** New title just fades in (no rise). */
+  titleFade?: boolean
+  /** While resizing, keep the bottom of the content still (sheet grows/shrinks above it). */
+  anchorBottom?: boolean
+  /** Steps that morph into each other in place instead of sliding. Shared [data-morph] items glide to their new spot. */
+  morph?: string[]
   /** Optional header button on the left, opposite the X. */
   lead?: ReactNode; children: ReactNode
 }) {
@@ -51,6 +57,38 @@ export function Dialog({ title, close, busy = false, step, back = false, lead, c
   const titleId = useId()
   const size = useRef<HTMLDivElement>(null)
   const paneKey = step ?? title
+
+  // Decided once per step change, so later renders don't restart the pane animation.
+  const swap = useRef<{ key: string; morph: boolean; rects?: Map<string, DOMRect>; title?: string }>({ key: paneKey, morph: false })
+  const shownTitle = useRef(title)
+  if (swap.current.key !== paneKey) {
+    const morphing = !!morph?.includes(paneKey) && morph.includes(swap.current.key)
+    // The old step is still on screen during this render, remember where its shared items sit.
+    const rects = morphing ? new Map([...(measure.current?.querySelectorAll<HTMLElement>('[data-morph]') ?? [])].map((element) => [element.dataset.morph!, element.getBoundingClientRect()])) : undefined
+    // The old title stays a moment to fade out under the new one.
+    swap.current = { key: paneKey, morph: morphing, rects, title: morphing && shownTitle.current !== title ? shownTitle.current : undefined }
+  }
+  shownTitle.current = title
+  useLayoutEffect(() => {
+    const rects = swap.current.rects
+    if (!rects) return
+    swap.current.rects = undefined
+    const animations: Animation[] = []
+    for (const element of measure.current!.querySelectorAll<HTMLElement>('[data-morph]')) {
+      const from = rects.get(element.dataset.morph!)
+      if (!from) continue
+      const to = element.getBoundingClientRect()
+      // Nested items move relative to their moving parent.
+      const parent = element.parentElement?.closest<HTMLElement>('[data-morph]')
+      const parentFrom = parent && rects.get(parent.dataset.morph!)
+      const parentTo = parent?.getBoundingClientRect()
+      const dx = from.left - to.left - (parentFrom && parentTo ? parentFrom.left - parentTo.left : 0)
+      const dy = from.top - to.top - (parentFrom && parentTo ? parentFrom.top - parentTo.top : 0)
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue
+      animations.push(element.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: 340, easing: 'cubic-bezier(.2, .8, .2, 1)' }))
+    }
+    return () => animations.forEach((animation) => animation.cancel())
+  }, [paneKey])
 
   useEffect(() => {
     const dialog = ref.current!
@@ -171,11 +209,11 @@ export function Dialog({ title, close, busy = false, step, back = false, lead, c
     <div className="dialog-content">
       <div className="sheet-grab" onPointerDown={dragStart} onPointerMove={dragMove} onPointerUp={dragEnd} onPointerCancel={dragEnd}>
       <div className="sheet-handle" />
-      <div className="dialog-head">{lead && <span className="dialog-lead">{lead}</span>}<h2 id={titleId} key={title} className="dialog-title">{title}</h2><button type="button" className="icon-button" aria-label={t('Close dialog')} onClick={dismiss} disabled={busy}><X size={19} /></button></div>
+      <div className="dialog-head">{lead && <span className="dialog-lead">{lead}</span>}{swap.current.title && <span key={`old-${swap.current.title}`} className="dialog-title dialog-title--out" aria-hidden="true">{swap.current.title}</span>}<h2 id={titleId} key={title} className={swap.current.title ? 'dialog-title dialog-title--cross' : titleFade ? 'dialog-title dialog-title--fade' : 'dialog-title'}>{title}</h2><button type="button" className="icon-button" aria-label={t('Close dialog')} onClick={dismiss} disabled={busy}><X size={19} /></button></div>
       </div>
-      <div ref={size} className="dialog-size">
+      <div ref={size} className={anchorBottom ? 'dialog-size dialog-size--end' : 'dialog-size'}>
         <div ref={measure} className="dialog-measure">
-          <div key={paneKey} className={`dialog-pane${back ? ' dialog-pane--back' : ''}`}>{children}</div>
+          <div key={paneKey} className={`dialog-pane${swap.current.morph ? ' dialog-pane--morph' : back ? ' dialog-pane--back' : ''}`}>{children}</div>
         </div>
       </div>
     </div>

@@ -120,6 +120,14 @@ export default function App() {
   const updateWorker = useRef<ReturnType<typeof registerSW> | null>(null)
   const toastTimer = useRef<number | undefined>(undefined)
   const content = useRef<HTMLElement>(null)
+  // Header border + shadow once the page scrolls, same as the home page bar.
+  const [scrolled, setScrolled] = useState(false)
+  useEffect(() => {
+    const update = () => { if (document.body.style.position !== 'fixed') setScrolled(scrollY > 8) }
+    update()
+    addEventListener('scroll', update, { passive: true })
+    return () => removeEventListener('scroll', update)
+  }, [])
   const close = useCallback(() => setModal(undefined), [])
   // Same slide-down as the X button.
   const closeSheet = useCallback(() => {
@@ -153,7 +161,7 @@ export default function App() {
     toastTimer.current = window.setTimeout(() => setToast(''), 4200)
   }, [])
   const wallet = useWallet(close, notify)
-  const dapps = useDapps(wallet.mode === 'wallet' && !wallet.preferences.offline)
+  const dapps = useDapps(wallet.mode === 'wallet' && !wallet.preferences.offline, wallet.preferences.offline)
   // A pull-to-refresh only grays the Refresh button (the pull arrow spins). Cleared a bit after loading so the fade back matches.
   const [pulled, setPulled] = useState(false)
   useEffect(() => {
@@ -343,7 +351,7 @@ export default function App() {
       </aside>
 
       <div className="app-body">
-      <header className="app-header">
+      <header className={scrolled ? 'app-header is-scrolled' : 'app-header'}>
         <button type="button" className={modal?.type === 'wallets' ? 'account account--open' : 'account'} onClick={() => setModal({ type: mode === 'wallet' ? 'wallets' : 'access' })} aria-label={mode === 'wallet' ? t('{name}, switch or edit wallets', { name: wallet.name }) : t('Set up wallet')}>
           <span className="avatar">{mode === 'wallet' && wallet.emoji ? <span className="avatar-emoji" aria-hidden="true">{wallet.emoji}</span> : <img src="/icons/brand.svg" alt="" width="20" height="20" />}</span>
           <span className="account-text"><strong>{mode === 'none' ? t('No wallet') : wallet.name || t('Wallet')}{mode === 'wallet' && <ChevronDown size={14} className="account-edit" />}</strong>{mode === 'none' && <small>{t('Set up to start')}</small>}</span>
@@ -449,7 +457,7 @@ export default function App() {
         {modal.type === 'wallets' && session && <WalletSwitcher wallets={wallet.wallets} active={wallet.activeWallet ?? session.id} warm={wallet.warmWallets} close={close} select={(account) => { void wallet.switchWallet(account) }} add={() => { void wallet.addWallet() }} addPhrase={wallet.addPhraseWallet} rename={wallet.rename} setEmoji={wallet.setEmoji} reorder={wallet.orderWallets} remove={wallet.deleteWallet} />}
         {modal.type === 'phrase' && session && <RecoveryPhrase session={session} close={close} />}
         {modal.type === 'contacts' && session && <Contacts contacts={wallet.contacts} edit={wallet.editContact} networks={displayedNetworks} close={close} />}
-        {modal.type === 'dapps' && session && <ConnectedApps close={close} offline={preferences.offline} initialLink={modal.link} />}
+        {modal.type === 'dapps' && session && <ConnectedApps close={close} offline={preferences.offline} address={session.addresses.ethereum} initialLink={modal.link} />}
         {modal.type === 'slippage' && <SlippageDialog current={preferences.slippage} close={close} save={(value) => { if (wallet.update({ slippage: value })) { closeSheet(); notify(value ? 'Custom slippage saved' : 'Custom slippage removed') } }} />}
         {modal.type === 'password' && session && <ChangePassword session={session} close={close} done={() => { closeSheet(); notify('Password changed') }} />}
         {modal.type === 'remove' && session && <RemoveWallet session={session} close={close} removed={() => { wallet.removed(); toLanding(); notify('Wallet deleted') }} />}
@@ -493,9 +501,26 @@ function RemoveWallet({ session, close, removed }: { session: Session; close: ()
   const [error, setError] = useState('')
   const [tries, setTries] = useState(0)
   const [busy, setBusy] = useState(false)
+  // Right password first, then one more "are you sure" before anything is deleted.
+  const [sure, setSure] = useState(false)
 
-  async function remove(event: FormEvent<HTMLFormElement>) {
+  async function check(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    setBusy(true)
+    try {
+      const { unlockVault } = await import('./vault')
+      const verified = await unlockVault(password)
+      if (verified.vault !== session.vault) throw new Error('The saved wallet changed. Try again.')
+      setError('')
+      setSure(true)
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : 'The wallet could not be deleted.')
+      if (problem instanceof Error && problem.message === 'Incorrect password') setPassword('')
+      setTries((value) => value + 1)
+    } finally { setBusy(false) }
+  }
+
+  async function remove() {
     setBusy(true)
     try {
       const { unlockVault, removeVault } = await import('./vault')
@@ -509,8 +534,16 @@ function RemoveWallet({ session, close, removed }: { session: Session; close: ()
     } finally { setBusy(false) }
   }
 
-  return <Dialog title={t('Delete wallet?')} close={close} busy={busy}>
-    <form className="form" autoComplete="off" onSubmit={remove}>
+  if (sure) return <Dialog title={t('Delete wallet?')} step="sure" close={close} busy={busy}>
+    <div className="form"><span className="empty-icon"><Trash2 size={24} /></span>
+      <p className="dialog-intro dialog-intro--center">{t('Are you sure you want to delete your wallet from Still Wallet on this device? You can only get it back with your recovery phrase.')}</p>
+      <ErrorSlot error={error} attempt={tries} />
+      <div className="two-actions"><button className="button primary" type="button" onClick={close} disabled={busy} autoFocus>{t('Cancel')}</button><button className="button secondary" type="button" onClick={() => void remove()} disabled={busy}><span key={String(busy)} className="label-swap">{busy ? t('Deleting…') : t('Delete wallet')}</span></button></div>
+    </div>
+  </Dialog>
+
+  return <Dialog title={t('Delete wallet?')} step="password" close={close} busy={busy}>
+    <form className="form" autoComplete="off" onSubmit={check}>
       <Notice>{t('This deletes every wallet, name, emoji, activity and setting Still saved in this browser. Make sure you have your recovery phrase, it’s the only way to get your funds back.')}</Notice>
       <label className={error ? 'field field--wrong' : 'field'}>{t('Wallet pass⁠word')}<PasswordInput value={password} onChange={(event) => setPassword(event.target.value)} required maxLength={256} /></label>
       <ErrorSlot error={error} attempt={tries} />
@@ -547,6 +580,7 @@ function ChangePassword({ session, close, done }: { session: Session; close: () 
     } catch (problem) {
       const message = problem instanceof Error ? problem.message : 'The password could not be changed. Nothing was changed.'
       fail(message, message === 'Incorrect password')
+      if (message === 'Incorrect password') setCurrent('')
     } finally { setBusy(false) }
   }
 
@@ -571,15 +605,25 @@ function LockScreen({ mainRef, protect, preload, onSession, removed }: { mainRef
   const [busy, setBusy] = useState(false)
   const [unlocked, setUnlocked] = useState(false)
   const [forgot, setForgot] = useState<false | 'menu' | 'phrase' | 'password'>(false)
-  // Forgot password slides like sheet steps. Logo stays put.
+  // Forgot password steps slide like sheet steps. Logo stays put.
+  // Lock form <-> forgot menu: blue button stays and only its label fades, the rest comes in from above and below.
   const cameBack = useRef(false)
   const [goingBack, setGoingBack] = useState(false)
+  const [swapIn, setSwapIn] = useState(false)
+  const fadeLabel = useRef(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  useEffect(() => {
+    if (!swapIn) return
+    const timer = window.setTimeout(() => setSwapIn(false), 420)
+    return () => window.clearTimeout(timer)
+  }, [swapIn])
   const [phrase, setPhrase] = useState('')
   const [next, setNext] = useState('')
   const [confirmation, setConfirmation] = useState('')
   const changeForgot = (step: 'menu' | 'phrase' | 'password') => {
     const order = ['menu', 'phrase', 'password']
     setGoingBack(order.indexOf(step) < order.indexOf(forgot || 'menu'))
+    setSwapIn(false)
     setError('')
     setNext('')
     setConfirmation('')
@@ -611,9 +655,11 @@ function LockScreen({ mainRef, protect, preload, onSession, removed }: { mainRef
       const id = savedVaultId() ?? ''
       await removeVault(id)
       try { forgetVault() } finally { removed(message) }
+      return true
     } catch (problem) {
       setError(problem instanceof Error ? problem.message : 'The local wallet could not be removed.')
       setBusy(false)
+      return false
     }
   }
 
@@ -653,12 +699,18 @@ function LockScreen({ mainRef, protect, preload, onSession, removed }: { mainRef
 
   if (forgot) return <main ref={mainRef} id="main-content" className="lock-screen" tabIndex={-1}>
     <div className="lock-top"><Brand name="Still Wallet" stacked /></div>
-    {forgot === 'menu' && <div key="menu" className={goingBack ? 'lock-card form lock-card--swap lock-card--back' : 'lock-card form lock-card--swap'}>
+    {forgot === 'menu' && <div key="menu" className={goingBack ? 'lock-card form lock-card--swap lock-card--back' : swapIn ? 'lock-card form lock-card--quiet lock-card--in' : 'lock-card form lock-card--quiet'}>
       <h1>{t('Forgot your password?')}</h1>
       <p className="dialog-intro lock-intro">{t('Your recovery phrase sets a new password, nothing is lost. Deleting is final.')}</p>
       <ErrorSlot error={error} />
-      <button type="button" className="button primary wide" disabled={busy} onClick={() => changeForgot('phrase')} autoFocus><KeyRound size={17} />{t('Use recovery phrase')}</button>
-      <div className="two-actions"><button type="button" className="button secondary" disabled={busy} onClick={() => { cameBack.current = true; setPhrase(''); setForgot(false) }}>{t('Cancel')}</button><button type="button" className="button secondary" disabled={busy} onClick={() => void reset()}><span key={String(busy)} className="label-swap">{busy ? t('Deleting…') : t('Delete wallet')}</span></button></div>
+      <button type="button" className="button primary wide" disabled={busy} onClick={() => changeForgot('phrase')} autoFocus><span className="label-swap label-fade"><KeyRound size={17} />{t('Use recovery phrase')}</span></button>
+      <div className="two-actions"><button type="button" className="button secondary" disabled={busy} onClick={() => { cameBack.current = true; fadeLabel.current = true; setSwapIn(true); setPhrase(''); setForgot(false) }}>{t('Cancel')}</button><button type="button" className="button secondary" disabled={busy} onClick={() => { setError(''); setConfirmDelete(true) }}>{t('Delete wallet')}</button></div>
+      {confirmDelete && <Dialog title={t('Delete wallet?')} close={() => setConfirmDelete(false)} busy={busy}>
+        <div className="form"><span className="empty-icon"><Trash2 size={24} /></span>
+          <p className="dialog-intro dialog-intro--center">{t('Are you sure you want to delete your wallet from Still Wallet on this device? You can only get it back with your recovery phrase.')}</p>
+          <div className="two-actions"><button type="button" className="button primary" onClick={() => setConfirmDelete(false)} disabled={busy} autoFocus>{t('Cancel')}</button><button type="button" className="button secondary" onClick={async () => { if (!(await reset())) setConfirmDelete(false) }} disabled={busy}><span key={String(busy)} className="label-swap">{busy ? t('Deleting…') : t('Delete wallet')}</span></button></div>
+        </div>
+      </Dialog>}
     </div>}
     {forgot === 'phrase' && <form key="phrase" autoComplete="off" className={goingBack ? 'lock-card form lock-card--swap lock-card--back' : 'lock-card form lock-card--swap'} onSubmit={checkPhrase}>
       <h1>{t('Enter your recovery phrase')}</h1>
@@ -689,11 +741,13 @@ function LockScreen({ mainRef, protect, preload, onSession, removed }: { mainRef
     try { await preload(session) } catch { /* The wallet retries on its own. */ }
     // Then open the padlock, then the wallet.
     setUnlocked(true)
-    window.setTimeout(() => onSession(session), 650)
+    // Another tab may have deleted or replaced the wallet in the meantime.
+    window.setTimeout(() => { if (savedVaultId() === session.vault) onSession(session) }, 650)
   }
 
   async function faceId(quiet = false) {
     if (busy) return
+    fadeLabel.current = false
     setBusy(true)
     try {
       await finish(await unlockWithPasskey())
@@ -707,6 +761,7 @@ function LockScreen({ mainRef, protect, preload, onSession, removed }: { mainRef
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     // Keep the old error up while checking so a 2nd wrong try does not flicker it.
+    fadeLabel.current = false
     setBusy(true)
     try {
       const { unlockVault } = await import('./vault')
@@ -715,19 +770,19 @@ function LockScreen({ mainRef, protect, preload, onSession, removed }: { mainRef
       setError(problem instanceof Error ? problem.message : 'The local wallet could not be opened.')
       setTries((value) => value + 1)
       setBusy(false)
+      if (problem instanceof Error && problem.message === 'Incorrect password') setPassword('')
       // Only real wrong passwords count. Re-read storage so other tabs can't each get their own 5 tries.
       if (!protect || !(problem instanceof Error && problem.message === 'Incorrect password')) return
       const count = failedUnlocks() + 1
       try { saveFailedUnlocks(count) } catch { /* Still enforce within this session. */ }
       setFailures(count)
-      setPassword('')
       if (count >= maxUnlockAttempts) await reset('Too many wrong passwords. Wallet erased')
     }
   }
 
   return <main ref={mainRef} id="main-content" className="lock-screen" tabIndex={-1}>
     <div className="lock-top"><Brand name="Still Wallet" stacked /></div>
-    <form autoComplete="off" className={cameBack.current ? 'lock-card form lock-card--swap lock-card--back' : 'lock-card form'} onSubmit={submit}>
+    <form autoComplete="off" className={cameBack.current ? swapIn ? 'lock-card form lock-card--quiet lock-card--in' : 'lock-card form lock-card--quiet' : 'lock-card form'} onSubmit={submit}>
       <h1>{t('Enter your password')}</h1>
       <label className={error ? 'field field--wrong' : 'field'}><PasswordInput aria-label={t('Wallet key')} aria-invalid={!!error} value={password} onChange={(event) => setPassword(event.target.value)} placeholder={t('Password')} required maxLength={256} autoFocus /></label>
       {protect && failures > 0 && (maxUnlockAttempts - failures === 1
@@ -735,10 +790,10 @@ function LockScreen({ mainRef, protect, preload, onSession, removed }: { mainRef
         : <p className="attempts-left">{t('{count} tries left before this wallet is erased', { count: maxUnlockAttempts - failures })}</p>)}
       <ErrorSlot error={error} attempt={tries} />
       <button type="submit" className="button primary wide" disabled={busy || !password}>
-        <span key={unlocked ? 'open' : String(busy)} className="label-swap">{unlocked ? <LockKeyhole size={17} className="unlocking" /> : busy ? <LoaderCircle size={17} className="spin" /> : <LockKeyhole size={17} />}{unlocked ? t('Unlocked') : busy ? t('Unlocking…') : t('Unlock')}</span>
+        <span key={unlocked ? 'open' : String(busy)} className={fadeLabel.current ? 'label-swap label-fade' : 'label-swap'}>{unlocked ? <LockKeyhole size={17} className="unlocking" /> : busy ? <LoaderCircle size={17} className="spin" /> : <LockKeyhole size={17} />}{unlocked ? t('Unlocked') : busy ? t('Unlocking…') : t('Unlock')}</span>
       </button>
       {passkey && <button type="button" className="button secondary wide" disabled={busy} onClick={() => void faceId()}><ScanFace size={17} />{t('Use Face ID')}</button>}
-      <button type="button" className="button text-button wide" onClick={() => { setError(''); setGoingBack(false); setForgot('menu') }}>{t('Forgot password?')}</button>
+      <button type="button" className="button text-button wide" onClick={() => { setError(''); setGoingBack(false); setSwapIn(true); setForgot('menu') }}>{t('Forgot password?')}</button>
     </form>
   </main>
 }
@@ -758,6 +813,7 @@ function WalletSwitcher({ wallets, active, warm, close, select, add, addPhrase, 
   const [back, setBack] = useState(false)
   const [importing, setImporting] = useState(false)
   const [phrase, setPhrase] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [tries, setTries] = useState(0)
   const entry = wallets.find((item) => item.id === editing)
@@ -788,21 +844,41 @@ function WalletSwitcher({ wallets, active, warm, close, select, add, addPhrase, 
   }
 
   if (removing) {
+    // Wallets added with their own phrase lose that phrase on this device too, so they need the password.
+    const ownPhrase = removing.account >= 100
+    const cancel = () => { setPassword(''); setError(''); setBack(true); setRemoving(undefined) }
     const confirm = async () => {
       setBusy(true)
+      if (ownPhrase) {
+        try {
+          const { unlockVault } = await import('./vault')
+          const verified = await unlockVault(password)
+          if (verified.vault !== savedVaultId()) throw new Error('The saved wallet changed. Try again.')
+        } catch (problem) {
+          setBusy(false)
+          setPassword('')
+          setError(problem instanceof Error && problem.message.length < 120 ? problem.message : 'Incorrect password')
+          setTries((count) => count + 1)
+          return
+        }
+      }
       const ok = await remove(removing.account)
       setBusy(false)
-      if (ok) { setBack(true); setRemoving(undefined) }
+      if (ok) cancel()
     }
     return <Dialog title={t('Delete wallet?')} step="delete" close={close} busy={busy}>
-      <div className="form"><span className="empty-icon"><Trash2 size={24} /></span>
-        <p className="dialog-intro dialog-intro--center">{t('This removes {name} from Still Wallet on this device. Its coins stay safe on your recovery phrase.', { name: removing.name })}</p>
-        <div className="two-actions"><button type="button" className="button primary" onClick={() => { setBack(true); setRemoving(undefined) }} disabled={busy} autoFocus>{t('Cancel')}</button><button type="button" className="button secondary" onClick={() => void confirm()} disabled={busy}>{t('Delete')}</button></div>
-      </div>
+      <form className="form" autoComplete="off" onSubmit={(event) => { event.preventDefault(); void confirm() }}><span className="empty-icon"><Trash2 size={24} /></span>
+        <p className="dialog-intro dialog-intro--center">{ownPhrase
+          ? t('This removes {name} and its own recovery phrase from this device. Make sure that phrase is written down, or its coins are lost.', { name: removing.name })
+          : t('This removes {name} from Still Wallet on this device. Its coins stay safe on your recovery phrase.', { name: removing.name })}</p>
+        {ownPhrase && <label className={error ? 'field field--wrong' : 'field'}>{t('Wallet pass⁠word')}<PasswordInput value={password} onChange={(event) => { setPassword(event.target.value); setError('') }} required maxLength={256} /></label>}
+        {ownPhrase && <ErrorSlot error={error} attempt={tries} />}
+        <div className="two-actions"><button type="button" className="button primary" onClick={cancel} disabled={busy} autoFocus>{t('Cancel')}</button><button type="submit" className="button secondary" disabled={busy || (ownPhrase && !password)}>{t('Delete')}</button></div>
+      </form>
     </Dialog>
   }
 
-  if (managing) return <Dialog title={t('Manage wallets')} step="manage" back={back} close={close}>
+  if (managing) return <Dialog title={t('Manage wallets')} step="manage" morph={walletSteps} back={back} close={close}>
     <ManageWallets wallets={wallets} reorder={reorder} remove={(item) => { setBack(false); setRemoving(item) }} />
     <button type="button" className="button primary wide" onClick={() => { setBack(true); setManaging(false) }}>{t('Done')}</button>
   </Dialog>
@@ -820,11 +896,11 @@ function WalletSwitcher({ wallets, active, warm, close, select, add, addPhrase, 
     </Dialog>
   }
 
-  return <Dialog title={t('Wallets')} step="list" back={back} close={close} lead={<button type="button" className="icon-button" aria-label={t('Manage wallets')} onClick={() => { setBack(false); setManaging(true) }}><SlidersHorizontal size={18} /></button>}>
+  return <Dialog title={t('Wallets')} step="list" morph={walletSteps} back={back} close={close} lead={<button type="button" className="icon-button" aria-label={t('Manage wallets')} onClick={() => { setBack(false); setManaging(true) }}><SlidersHorizontal size={18} /></button>}>
     <ul className="wallet-list">
-      {wallets.map((item) => <li key={item.id} className={item.id === active ? 'active' : ''}>
+      {wallets.map((item) => <li key={item.id} className={item.id === active ? 'active' : ''} data-morph={item.id}>
         <button type="button" className="wallet-pick" onClick={() => select(item.account)} aria-current={item.id === active ? 'true' : undefined}>
-          <span className="wallet-emoji" aria-hidden="true">{item.emoji}</span><strong>{item.name}</strong>{item.id === active && <Check size={17} />}
+          <span className="wallet-emoji" aria-hidden="true" data-morph={`${item.id}-emoji`}>{item.emoji}</span><strong data-morph={`${item.id}-name`}>{item.name}</strong>{item.id === active && <Check size={17} />}
         </button>
         <button type="button" className="round-button" aria-label={t('Edit {name}', { name: item.name })} onClick={() => { setValue(item.name); setEditing(item.id) }}><Pencil size={16} /></button>
       </li>)}
@@ -833,19 +909,30 @@ function WalletSwitcher({ wallets, active, warm, close, select, add, addPhrase, 
   </Dialog>
 }
 
+const walletSteps = ['list', 'manage']
+
 /** "Add wallet" opens a small menu: another wallet on the same phrase, or one with its own phrase. */
 function AddWalletMenu({ create, importPhrase }: { create: () => void; importPhrase: () => void }) {
   const [open, setOpen] = useState(false)
   const [place, setPlace] = useState<CSSProperties>()
+  const [up, setUp] = useState(false)
+  // Kept mounted for the close animation.
+  const [shown, setShown] = useState(false)
+  useEffect(() => {
+    if (open) { setShown(true); return }
+    const timer = window.setTimeout(() => setShown(false), 160)
+    return () => window.clearTimeout(timer)
+  }, [open])
   const button = useRef<HTMLButtonElement>(null)
   const float = useRef<HTMLDivElement>(null)
   const list = useRef<HTMLUListElement>(null)
 
   useLayoutEffect(() => {
-    if (!open || !button.current) { setPlace(undefined); return }
+    if (!open || !button.current) return
     const rect = button.current.getBoundingClientRect()
     const height = list.current?.offsetHeight ?? 112
     const below = window.innerHeight - rect.bottom - 14 >= height
+    setUp(!below)
     setPlace({ position: 'fixed', ...(below ? { top: rect.bottom + 6 } : { bottom: window.innerHeight - rect.top + 6 }), left: rect.left, width: rect.width })
   }, [open])
 
@@ -874,7 +961,7 @@ function AddWalletMenu({ create, importPhrase }: { create: () => void; importPhr
 
   return <>
     <button ref={button} type="button" className="button secondary wide" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}><Plus size={17} /> {t('Add wallet')}</button>
-    {open && createPortal(<div ref={float} className="picker-float add-wallet-menu" style={place ?? { position: 'fixed', visibility: 'hidden' }}>
+    {(open || shown) && createPortal(<div ref={float} className={`picker-float add-wallet-menu${up ? ' add-wallet-menu--up' : ''}${open ? '' : ' closing'}`} inert={!open} style={place ?? { position: 'fixed', visibility: 'hidden' }}>
       <ul ref={list} className="picker-list" role="menu" aria-label={t('Add wallet')}>
         {items.map((item) => <li key={item.label} role="menuitem" tabIndex={0} onClick={() => choose(item.run)}
           onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); choose(item.run) } }}>
@@ -931,11 +1018,11 @@ function ManageWallets({ wallets, reorder, remove }: { wallets: WalletEntry[]; r
 
   return <ul className="wallet-list wallet-list--manage" ref={list}>
     {wallets.map((item, index) => <li key={item.id} className={`manage-row${drag?.moved && drag.id === item.id ? ' is-dragging' : ''}${drag?.moved ? ' is-sorting' : ''}`}
-      style={drag?.moved ? { transform: drag.id === item.id ? `translateY(${drag.dy}px) scale(1.02)` : `translateY(${shift(index)}px)` } : undefined}>
+      style={drag?.moved ? { transform: drag.id === item.id ? `translateY(${drag.dy}px) scale(1.02)` : `translateY(${shift(index)}px)` } : undefined} data-morph={item.id}>
       <button type="button" className="grip" aria-label={t('Drag to reorder {symbol}. Arrow keys move it.', { symbol: item.name })} onKeyDown={(event) => {
         if (event.key === 'ArrowUp' || event.key === 'ArrowDown') { event.preventDefault(); commit(index, index + (event.key === 'ArrowUp' ? -1 : 1)) }
       }} onPointerDown={(event) => startDrag(event, item.id)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}><GripVertical size={18} /></button>
-      <span className="wallet-emoji" aria-hidden="true">{item.emoji}</span><strong className="wallet-manage-name">{item.name}</strong>
+      <span className="wallet-emoji" aria-hidden="true" data-morph={`${item.id}-emoji`}>{item.emoji}</span><strong className="wallet-manage-name" data-morph={`${item.id}-name`}>{item.name}</strong>
       {wallets.length > 1 && <button type="button" className="round-button" aria-label={t('Delete {name}', { name: item.name })} onClick={() => remove(item)}><Trash2 size={16} /></button>}
     </li>)}
   </ul>

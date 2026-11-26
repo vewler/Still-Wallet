@@ -5,6 +5,7 @@ import { CrossFade, MorphLine } from './Charts'
 import { networks, type Chain } from '../networks'
 import { tokens } from '../tokens'
 import { smoothScrollTo } from '../scroll'
+import { readPreferences } from '../storage'
 import './landing.css'
 import { t } from '../i18n'
 
@@ -369,6 +370,8 @@ function MarketSection({ action, openWallet }: { action: string; openWallet: () 
   const fading = useRef<Animation>(undefined)
 
   useEffect(() => {
+    // Paused network requests cover the landing page too.
+    if (readPreferences().offline) return
     const controller = new AbortController()
     fetch('/api/market/sparklines?currency=usd', { signal: controller.signal, credentials: 'omit', referrerPolicy: 'no-referrer' })
       .then((response) => response.ok ? response.json() as Promise<MarketEntry[]> : Promise.reject(new Error('Market data unavailable')))

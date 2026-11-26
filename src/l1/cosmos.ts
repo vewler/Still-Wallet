@@ -103,6 +103,7 @@ export async function cosmosStatus(item: ActivityItem, endpoint: string, fetcher
   if (!/^[A-F\d]{64}$/.test(item.hash)) throw new Error('Invalid transaction ID.')
   const reply = await rest<{ tx_response?: { code?: number; height?: string } }>(endpoint, `/cosmos/tx/v1beta1/txs/${item.hash}`, fetcher)
   const result = reply?.tx_response
-  if (!result?.height || result.height === '0') return item.status
+  // Not found long after sending: dropped, or the node doesn't keep a transaction index.
+  if (!result?.height || result.height === '0') return Date.now() - item.created > 2 * 60 * 60_000 ? 'unknown' : item.status
   return result.code ? 'failed' : 'confirmed'
 }

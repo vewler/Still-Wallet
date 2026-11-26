@@ -1,5 +1,6 @@
 import { importNetworks, networks, type Environment, type NetworkId, validateEndpoint } from './networks'
 import { cleanLabel, type UserToken } from './tokens'
+import { forgetApps } from './walletconnect'
 
 export const VAULT_KEY = 'still.vault.v1'
 const SETTINGS_KEY = 'still.preferences.v1'
@@ -62,7 +63,7 @@ export function readPreferences(): Preferences {
   for (const key of Object.keys(networks) as NetworkId[]) {
     const endpoint = value.rpc?.[key]
     if (typeof endpoint !== 'string') continue
-    try { rpc[key] = validateEndpoint(endpoint) } catch { /* Ignore corrupted preferences. */ }
+    try { rpc[key] = validateEndpoint(endpoint, networks[key].chain) } catch { /* Ignore corrupted preferences. */ }
   }
   return {
     currency: currencies.includes(value.currency as Currency) ? value.currency! : defaults.currency,
@@ -269,6 +270,7 @@ export function forgetWallet(id: string) {
   for (const key of Object.keys(localStorage)) {
     if (key === TOKENS_PREFIX + id || (key.startsWith(ASSETS_PREFIX) && (key === ASSETS_PREFIX + id || key.endsWith(`.${id}`)))) localStorage.removeItem(key)
   }
+  for (const name of [...sealed.keys()]) if (name === TOKENS_PREFIX + id || (name.startsWith(ASSETS_PREFIX) && name.endsWith(`.${id}`))) sealed.delete(name)
 }
 
 export function walletEmoji(id: string, _account?: number) {
@@ -283,34 +285,95 @@ export function saveWalletEmoji(id: string, emoji: string) {
 
 /** Wipes every Still key in this browser (vault, wallets, names, emoji, activity, settings, counters). */
 export function forgetVault() {
+  sealed.clear()
   for (const key of Object.keys(localStorage)) if (key.startsWith('still.')) localStorage.removeItem(key)
   // Encrypted XMR scan caches.
   try { indexedDB.deleteDatabase('still-monero') } catch { /* Nothing saved. */ }
+  // Connected apps belong to the deleted wallet too.
+  void forgetApps().catch(() => {})
 }
 
 /* Per-wallet Home coins and their order. */
+/*
+ * Per-wallet Home coins, their order, and imported or found tokens. They show what a wallet holds,
+ * so they're encrypted with the wallet's activity key like history. Read after unlock, kept in memory until lock.
+ */
 const ASSETS_PREFIX = 'still.assets.v1.'
+const TOKENS_PREFIX = 'still.tokens.v1.'
+const layouts = ['phone', 'desktop'] as const
+const sealed = new Map<string, { key: CryptoKey; value: unknown }>()
+const sealedData = (name: string) => new TextEncoder().encode(`still/sealed/1/${name}`)
+let sealedWrites: Promise<void> = Promise.resolve()
 
-/** Phone and desktop keep separate lists. */
-const layoutKey = (walletId: string) => `${ASSETS_PREFIX}${document.documentElement.dataset.layout ?? 'desktop'}.${walletId}`
+async function openSealed(name: string, key: CryptoKey, legacy: string[] = []) {
+  const cached = sealed.get(name)
+  if (cached && cached.key === key) return cached.value
+  const stored = read<unknown>(name, null)
+  let value: unknown = null
+  let migrate = false
+  if (stored && typeof stored === 'object' && !Array.isArray(stored) && typeof (stored as { iv?: unknown }).iv === 'string') {
+    try {
+      const { iv, data } = stored as { iv: string; data: string }
+      const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromBase64(iv), additionalData: sealedData(name) }, key, fromBase64(data))
+      value = JSON.parse(new TextDecoder().decode(plain))
+    } catch { /* Unreadable data starts empty. */ }
+  } else {
+    // Saved before encryption: move it into the encrypted form.
+    value = stored ?? legacy.map((other) => read<unknown>(other, null)).find((entry) => entry !== null) ?? null
+    migrate = value !== null
+  }
+  sealed.set(name, { key, value })
+  if (migrate) { writeSealed(name, value); legacy.forEach((other) => localStorage.removeItem(other)) }
+  return value
+}
+
+function writeSealed(name: string, value: unknown) {
+  const entry = sealed.get(name)
+  if (!entry) throw new Error('Unlock the wallet to save this.')
+  entry.value = value
+  const write = async () => {
+    if (sealed.get(name) !== entry || entry.value !== value) return
+    const iv = crypto.getRandomValues(new Uint8Array(12))
+    const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: sealedData(name) }, entry.key, new TextEncoder().encode(JSON.stringify(value)))
+    if (sealed.get(name) === entry && entry.value === value) localStorage.setItem(name, JSON.stringify({ iv: toBase64(iv), data: toBase64(new Uint8Array(data)) }))
+  }
+  sealedWrites = sealedWrites.then(write, write).catch(() => {})
+}
+
+/** Decrypts a wallet's token list and both Home layouts. Call before reading them. */
+export async function openWalletData(walletId: string, key: CryptoKey) {
+  await Promise.all([
+    openSealed(TOKENS_PREFIX + walletId, key),
+    // Phone and desktop keep separate lists, the old shared one is their starting point.
+    ...layouts.map((layout) => openSealed(`${ASSETS_PREFIX}${layout}.${walletId}`, key, layout === 'desktop' ? [ASSETS_PREFIX + walletId] : [])),
+  ])
+}
+
+/** Resolves when queued token list and layout writes are saved. */
+export function walletDataSaved() {
+  return sealedWrites
+}
+
+/** Drop decrypted token lists and layouts on lock. */
+export function forgetWalletData() {
+  sealed.clear()
+}
+
+const layoutKey = (walletId: string) => `${ASSETS_PREFIX}${document.documentElement.dataset.layout === 'phone' ? 'phone' : 'desktop'}.${walletId}`
 
 export function readAssetLayout(walletId: string, fallback: { order: string[]; shown: string[] }) {
-  // Fall back to the old shared list once.
-  const value = read<{ order?: unknown; shown?: unknown } | null>(layoutKey(walletId), null) ?? read<{ order?: unknown; shown?: unknown } | null>(ASSETS_PREFIX + walletId, null)
+  const value = (sealed.get(layoutKey(walletId))?.value ?? sealed.get(`${ASSETS_PREFIX}desktop.${walletId}`)?.value) as { order?: unknown; shown?: unknown } | null | undefined
   if (!value || typeof value !== 'object') return fallback
   const list = (entry: unknown) => Array.isArray(entry) ? entry.filter((item): item is string => typeof item === 'string').slice(0, 200) : []
   return { order: list(value.order), shown: list(value.shown) }
 }
 
 export function saveAssetLayout(walletId: string, value: { order: string[]; shown: string[] }) {
-  localStorage.setItem(layoutKey(walletId), JSON.stringify(value))
+  writeSealed(layoutKey(walletId), value)
 }
 
-/* Per-wallet imported and found tokens. Public token info only. */
-const TOKENS_PREFIX = 'still.tokens.v1.'
-
 export function readUserTokens(walletId: string): UserToken[] {
-  const value = read<unknown>(TOKENS_PREFIX + walletId, [])
+  const value = sealed.get(TOKENS_PREFIX + walletId)?.value
   if (!Array.isArray(value)) return []
   return value.flatMap((entry): UserToken[] => {
     if (!entry || typeof entry !== 'object') return []
@@ -324,7 +387,7 @@ export function readUserTokens(walletId: string): UserToken[] {
 }
 
 export function saveUserTokens(walletId: string, list: UserToken[]) {
-  localStorage.setItem(TOKENS_PREFIX + walletId, JSON.stringify(list))
+  writeSealed(TOKENS_PREFIX + walletId, list)
 }
 
 /* Address book. Shared by every wallet in the vault, encrypted with the vault key like activity. */

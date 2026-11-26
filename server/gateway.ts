@@ -15,10 +15,17 @@ const evmMethods = new Set([
 const solanaMethods = new Set([
   'getGenesisHash', 'getBalance', 'getMultipleAccounts', 'getAccountInfo', 'getTokenAccountBalance',
   'getLatestBlockhash', 'getFeeForMessage', 'getMinimumBalanceForRentExemption', 'getSignatureStatuses',
-  'getBlockHeight', 'sendTransaction', 'simulateTransaction', 'getAsset', 'searchAssets',
+  'getBlockHeight', 'sendTransaction', 'simulateTransaction', 'getAsset', 'searchAssets', 'getTokenAccountsByOwner',
 ])
 // Helius DAS methods take named params.
 const objectParams = new Set(['getAsset', 'searchAssets'])
+// Operations the Sui SDK sends (its generated GraphQL documents), nothing hand-written.
+const suiQueries = new Set([
+  'checkpointTransactions', 'defaultSuinsName', 'getAllBalances', 'getBalance', 'getChainIdentifier', 'getCoinMetadata', 'getCoins', 'getCurrentSystemState',
+  'getDynamicFields', 'getMoveFunction', 'getOwnedObjects', 'getProtocolConfig', 'getReferenceGasPrice', 'getTransactionBlock', 'getTransactionEvents',
+  'getTransactionObjectChanges', 'ledgerStreamState', 'listCheckpoints', 'listEvents', 'listTransactions', 'multiGetObjects', 'resolveNameServiceAddress',
+  'resolveTransaction', 'scanCheckpoints', 'scanCheckpointsWithTransactions', 'scanEvents', 'scanTransactions', 'simulateTransaction', 'verifySignature',
+])
 const xrpMethods = new Set(['server_info', 'account_info', 'fee', 'submit', 'tx'])
 const tronPaths = new Set([
   '/wallet/getblockbynum', '/wallet/getnowblock', '/wallet/getaccount', '/wallet/getaccountresource', '/wallet/getchainparameters',
@@ -73,6 +80,7 @@ function allowRpc(methods: Set<string>, body: string) {
     if (payload.params?.length !== 1 || !params || typeof params.tx_blob !== 'string' || !hex.test(params.tx_blob) ||
       Object.keys(params).some((key) => key !== 'tx_blob' && key !== 'fail_hard')) throw new GatewayError(400)
   }
+  if (payload.method === 'getTokenAccountsByOwner' && !['TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'].includes(payload.params?.[1]?.programId)) throw new GatewayError(400)
   if (payload.method === 'eth_getBlockByNumber' && payload.params?.[1] !== false) throw new GatewayError(400)
   if (payload.method === 'getMultipleAccounts' && (!Array.isArray(payload.params?.[0]) || payload.params[0].length > 16)) {
     throw new GatewayError(400)
@@ -94,8 +102,8 @@ export function createGateway(env = process.env, fetchUpstream = fetch) {
     return [network.id, list]
   }))
   let active = 0
-  // Per-client limit so the gateway can't be used as a free RPC/price proxy.
-  const perMinute = Math.max(1, Number(env.STILL_RATE_LIMIT) || 240)
+  // Per-client limit so the gateway can't be used as a free RPC/price proxy. One balance refresh is ~250 calls (every network and token), so leave room for a few.
+  const perMinute = Math.max(1, Number(env.STILL_RATE_LIMIT) || 1200)
   const trustProxy = env.STILL_TRUST_PROXY === '1'
   const clients = new Map<string, { count: number; reset: number }>()
   const overBudget = (request: IncomingMessage) => {
@@ -112,6 +120,16 @@ export function createGateway(env = process.env, fetchUpstream = fetch) {
   const swapRoutes: Record<string, [method: string, upstream: string]> = {
     '/api/swap/tokens': ['GET', 'tokens'], '/api/swap/quote': ['POST', 'quote'], '/api/swap/submit': ['POST', 'deposit/submit'],
   }
+  const text = (value: unknown) => typeof value === 'string' && value.length > 0 && value.length <= 200
+  const one = (...allowed: unknown[]) => (value: unknown) => allowed.includes(value)
+  const swapFields: Record<string, Record<string, (value: unknown) => boolean>> = {
+    '/api/swap/quote': {
+      dry: one(false), swapType: one('EXACT_INPUT'), slippageTolerance: (value) => Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 5000,
+      originAsset: text, depositType: one('ORIGIN_CHAIN'), depositMode: one('MEMO'), destinationAsset: text, amount: (value) => typeof value === 'string' && /^\d{1,60}$/.test(value),
+      refundTo: text, refundType: one('ORIGIN_CHAIN'), recipient: text, recipientType: one('DESTINATION_CHAIN'), deadline: (value) => text(value) && !Number.isNaN(Date.parse(value as string)),
+    },
+    '/api/swap/submit': { txHash: text, depositAddress: text },
+  }
   const swapProxy = async (path: string, request: IncomingMessage, response: ServerResponse, fail: (status: number) => void) => {
     const route = Object.hasOwn(swapRoutes, path) ? swapRoutes[path] : undefined
     if (!route) return fail(404)
@@ -122,6 +140,11 @@ export function createGateway(env = process.env, fetchUpstream = fetch) {
         body = (await readBody(request, 16 * 1024)).toString('utf8')
         const payload = JSON.parse(body)
         if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new GatewayError(400)
+        // Only the fields Still sends, so the key can't be used for anything else.
+        const fields = swapFields[path]
+        if (Object.entries(payload).some(([key, value]) => !Object.hasOwn(fields, key) || !fields[key](value))) throw new GatewayError(400)
+        if (path === '/api/swap/quote' && ['originAsset', 'destinationAsset', 'amount', 'refundTo', 'recipient'].some((key) => !(key in payload))) throw new GatewayError(400)
+        body = JSON.stringify(payload)
       }
       const token = env.STILL_ONECLICK_JWT
       const upstream = await fetchUpstream(`https://1click.chaindefuser.com/v0/${route[1]}`, {
@@ -349,7 +372,11 @@ export function createGateway(env = process.env, fetchUpstream = fetch) {
         } else if (network.chain === 'sui') {
           let payload
           try { payload = JSON.parse(body) } catch { throw new GatewayError(400) }
-          if (!payload || typeof payload !== 'object' || Array.isArray(payload) || typeof payload.query !== 'string' || /^\s*subscription\b/.test(payload.query)) throw new GatewayError(400)
+          if (!payload || typeof payload !== 'object' || Array.isArray(payload) || typeof payload.query !== 'string' || payload.query.length > 32 * 1024 || /^\s*subscription\b/.test(payload.query)) throw new GatewayError(400)
+          // Only the Sui SDK's own operations, and sending a signed transaction is the only change the wallet makes.
+          const operation = /^\s*(query|mutation)\s+([A-Za-z]+)\b/.exec(payload.query)
+          if (!operation || !(operation[1] === 'mutation' ? operation[2] === 'executeTransaction' : suiQueries.has(operation[2]))) throw new GatewayError(400)
+          if ((payload.query.match(/\b(?:query|mutation|subscription)\s+[A-Za-z]/g) ?? []).length > 1) throw new GatewayError(400)
         } else {
           const custom = customRpcChains.has(network.chain)
           if (custom && !allowCustomRpc(network.chain, body)) throw new GatewayError(400)

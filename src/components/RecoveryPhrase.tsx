@@ -4,16 +4,7 @@ import { Dialog, ErrorSlot, Notice, PasswordInput } from './Dialog'
 import type { Session } from '../vault'
 import { walletIds } from '../storage'
 import { t } from '../i18n'
-
-const clearAfter = 60_000
-let clearTimer = 0
-
-// Wipe the copied phrase after a minute. Done once per copy, the newest copy wins.
-function copyPhrase(phrase: string) {
-  window.clearTimeout(clearTimer)
-  clearTimer = window.setTimeout(() => { void navigator.clipboard.writeText('').catch(() => {}) }, clearAfter)
-  return navigator.clipboard.writeText(phrase)
-}
+import { copySecret } from '../clipboard'
 
 /** Warning, then the password (never Face ID alone), then the words. Blurred until tapped, gone the moment the app leaves the screen. */
 export function RecoveryPhrase({ session, close }: { session: Session; close: () => void }) {
@@ -60,11 +51,14 @@ export function RecoveryPhrase({ session, close }: { session: Session; close: ()
     try {
       const { unlockVault } = await import('../vault')
       reveal(await unlockVault(password))
-    } catch (problem) { fail(problem, 'Incorrect password') } finally { setBusy(false) }
+    } catch (problem) {
+      fail(problem, 'Incorrect password')
+      if (problem instanceof Error && problem.message === 'Incorrect password') setPassword('')
+    } finally { setBusy(false) }
   }
 
   async function copy() {
-    try { await copyPhrase(phrase); setCopied(true) } catch { setCopied(false) }
+    try { await copySecret(phrase); setCopied(true) } catch { setCopied(false) }
   }
 
   const words = phrase.split(' ')

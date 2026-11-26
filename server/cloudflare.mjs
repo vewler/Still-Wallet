@@ -42,9 +42,20 @@ self.addEventListener('activate', event => event.waitUntil((async () => {
 })()))
 `
 
+// Per-IP budgets in Cloudflare's shared rate limiter. Imported-token prices each cost a CoinGecko call, so they get a tight one.
+async function overLimit(request, env, url) {
+  const client = request.headers.get('cf-connecting-ip') ?? 'unknown'
+  const limiter = isMoneroPath(url.pathname) ? env.MONERO_LIMIT : url.pathname === '/api/market/token-prices' ? env.PRICE_LIMIT : env.API_LIMIT
+  if (!limiter) return false
+  try { return !(await limiter.limit({ key: client })).success } catch { return false }
+}
+const tooMany = () => new Response('{"error":"RPC request rejected"}', {
+  status: 429, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Retry-After': '60', 'X-Content-Type-Options': 'nosniff' },
+})
+
 export default {
   // Monero replies go straight through as streams, the node adapter would copy every block batch.
-  fetch(request, env, context) {
+  async fetch(request, env, context) {
     const url = new URL(request.url)
     if (!homeHosts.has(url.hostname)) {
       if (url.pathname === '/sw.js') return new Response(retireWorker, { headers: { 'content-type': 'application/javascript', 'cache-control': 'no-store' } })
@@ -52,6 +63,7 @@ export default {
     }
     if (url.protocol === 'http:') return Response.redirect(home + url.pathname + url.search, 301)
     if (!workerPath.test(url.pathname)) return env.ASSETS.fetch(request)
+    if (url.pathname !== '/api/health' && await overLimit(request, env, url)) return tooMany()
     if (isMoneroPath(url.pathname)) return moneroProxy(request, monero)
     return node.fetch(request, env, context)
   },

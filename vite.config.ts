@@ -8,9 +8,12 @@ import { createGateway } from './server/gateway.ts'
 // Local dev uses the same public vars as the worker (WalletConnect project id, RPC overrides).
 for (const [key, value] of Object.entries((JSON.parse(readFileSync(new URL('./wrangler.jsonc', import.meta.url), 'utf8')) as { vars?: Record<string, string> }).vars ?? {})) process.env[key] ??= value
 
+// Backup for the full policy in public/_headers, which also covers the key and Monero workers (a meta tag doesn't).
+// connect-src stays open to https: and local http because custom RPCs can be any HTTPS host or the user's own local node.
 const csp = [
   "default-src 'self'",
   "script-src 'self'",
+  "worker-src 'self'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
   "font-src 'self'",
