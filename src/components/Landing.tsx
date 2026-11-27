@@ -54,6 +54,29 @@ const security = [
 export function Landing({ mode, mainRef, openWallet }: LandingProps) {
   const action = mode === 'none' ? t('Get started') : mode === 'locked' ? t('Unlock wallet') : t('Open wallet')
   const root = useRef<HTMLDivElement>(null)
+  const points = useRef<HTMLUListElement>(null)
+
+  // Hero points: when they wrap 2 + 1, shrink the list to the top row so the last one centers under it.
+  useEffect(() => {
+    const list = points.current
+    if (!list) return
+    const fit = () => {
+      list.classList.remove('is-wrapped')
+      list.style.removeProperty('--row')
+      const items = [...list.children] as HTMLElement[]
+      const top = items.filter((item) => item.offsetTop === items[0].offsetTop)
+      if (top.length === items.length) return
+      const last = top[top.length - 1]
+      list.style.setProperty('--row', `${Math.ceil(last.offsetLeft + last.offsetWidth - top[0].offsetLeft) + 1}px`)
+      list.classList.add('is-wrapped')
+    }
+    fit()
+    document.fonts?.ready.then(fit)
+    if (!('ResizeObserver' in window)) return
+    const observer = new ResizeObserver(fit)
+    observer.observe(list.parentElement ?? list)
+    return () => observer.disconnect()
+  }, [])
   const [scrolled, setScrolled] = useState(false)
   const [active, setActive] = useState('')
   // Keep the clicked nav item active while scrolling past other sections.
@@ -199,7 +222,7 @@ export function Landing({ mode, mainRef, openWallet }: LandingProps) {
             <div className="landing-actions">
               <button className="button primary landing-button landing-button--big" type="button" onClick={openWallet}>{action}<ArrowRight size={19} /></button>
             </div>
-            <ul className="hero-points">
+            <ul className="hero-points" ref={points}>
               <li><ShieldCheck size={16} /> {t('No account or email')}</li>
               <li><LockKeyhole size={16} /> {t('Encrypted on device')}</li>
               <li><Globe2 size={16} /> {t('Open source')}</li>

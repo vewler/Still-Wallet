@@ -17,7 +17,6 @@ import { Landing, discord } from './components/Landing'
 import { credits, dataSources, supporters, team } from './credits'
 import { ManageCoins } from './components/Manage'
 import { ImportToken } from './components/ImportToken'
-import { smoothScrollTo } from './scroll'
 import { CreditsPage, ErrorPage, FaqPage, PrivacyPolicy } from './components/Privacy'
 import { Dialog, ErrorSlot, Notice, PasswordInput, Slot } from './components/Dialog'
 import { useWallet } from './useWallet'
@@ -103,9 +102,9 @@ const homeMeta = { title: document.title, description: document.querySelector('m
 const pageMeta: Partial<Record<Route, { title: string; description: string; path: string }>> = {
   landing: { ...homeMeta, path: '/' },
   about: { ...homeMeta, path: '/' },
-  privacy: { title: 'Privacy Policy · Still Wallet', description: 'Still Wallet has no sign-up, analytics or trackers. Your wallet data stays on your device.', path: '/privacy' },
-  credits: { title: 'Credits · Still Wallet', description: 'The people and open-source projects behind Still Wallet.', path: '/credits' },
-  faq: { title: 'FAQ · Still Wallet', description: 'Answers to common questions about Still Wallet, a self-custody crypto wallet.', path: '/faq' },
+  privacy: { title: 'Still Wallet', description: 'Still Wallet has no sign-up, analytics or trackers. Your wallet data stays on your device.', path: '/privacy' },
+  credits: { title: 'Still Wallet', description: 'The people and open-source projects behind Still Wallet.', path: '/credits' },
+  faq: { title: 'Still Wallet', description: 'Answers to common questions about Still Wallet, a self-custody crypto wallet.', path: '/faq' },
 }
 function applyMeta(route: Route) {
   const meta = pageMeta[route]
@@ -276,8 +275,11 @@ export default function App() {
     if (route === 'about') {
       const about = document.getElementById('about')
       about?.focus({ preventScroll: true })
-      // Wait a frame for layout, then glide.
-      if (about) requestAnimationFrame(() => smoothScrollTo(about))
+      // Wait a frame for layout, then jump straight there (no glide).
+      if (about) requestAnimationFrame(() => {
+        const header = document.querySelector<HTMLElement>('.landing-header')?.offsetHeight ?? 0
+        window.scrollTo({ top: Math.max(0, about.getBoundingClientRect().top + window.scrollY - header - 16), behavior: 'instant' })
+      })
     } else if (route !== 'home') {
       window.scrollTo(0, 0)
       content.current?.focus({ preventScroll: true })

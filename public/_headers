@@ -29,6 +29,15 @@
   ! X-Content-Type-Options
   ! Cross-Origin-Resource-Policy
   Cross-Origin-Resource-Policy: cross-origin
+/favicon.ico
+  ! Content-Security-Policy
+  ! X-Frame-Options
+  ! Cross-Origin-Opener-Policy
+  ! Permissions-Policy
+  ! Referrer-Policy
+  ! X-Content-Type-Options
+  ! Cross-Origin-Resource-Policy
+  Cross-Origin-Resource-Policy: cross-origin
 /manifest.webmanifest
   ! Content-Security-Policy
   ! X-Frame-Options
